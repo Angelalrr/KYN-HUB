@@ -481,6 +481,7 @@ contentFrame.BackgroundTransparency = 1
 contentFrame.ZIndex = 2
 
 local tabs, tabButtons, tabStrokes = {}, {}, {}
+local toggleControllers = {}
 
 local function createTab(name)
     local tab = Instance.new("ScrollingFrame", contentFrame)
@@ -621,16 +622,29 @@ _G.KYNAddToggle = function(tabName, data)
         if data.Callback then pcall(data.Callback, state) end
     end
 
-    applyStateVisual(true)
-    task.defer(runCallback)
-
-    btn.Activated:Connect(function()
-        state = not state
+    local controller = {}
+    function controller:SetState(newState, silent)
+        local nextState = newState == true
+        if state == nextState then return end
+        state = nextState
         currentConfig.ToggleStates[toggleKey] = state
         saveConfig()
         applyStateVisual(false)
         runCallback()
-        notify(string.format("%s: %s", data.Name or "Toggle", state and "ON" or "OFF"), state and THEME.Green or THEME.Red, 1.8)
+        if not silent then
+            notify(string.format("%s: %s", data.Name or "Toggle", state and "ON" or "OFF"), state and THEME.Green or THEME.Red, 1.8)
+        end
+    end
+    function controller:GetState()
+        return state
+    end
+    toggleControllers[toggleKey] = controller
+
+    applyStateVisual(true)
+    task.defer(runCallback)
+
+    btn.Activated:Connect(function()
+        controller:SetState(not state, false)
     end)
 end
 
@@ -1488,6 +1502,9 @@ end
 -- ===========================
 local autoDesyncEnabled = false
 local autoDesyncCharacterConn = nil
+local desyncMode = "Respawn"
+local DESYNC_MODE_RESPAWN_KEY = "Main::Desync Mode: Respawn"
+local DESYNC_MODE_CLONER_KEY = "Main::Desync Mode: Cloner"
 
 local function setDesyncState(state)
     pcall(function()
@@ -1509,7 +1526,7 @@ local function startAutoDesync()
             notify("⚡ Auto Desync reactivado tras respawn.", THEME.Primary, 2.4)
         end
     end)
-    notify("⚡ Auto Desync activado.", THEME.Green, 2.2)
+    notify("⚡ Auto Desync activado (" .. desyncMode .. ").", THEME.Green, 2.2)
 end
 
 local function stopAutoDesync()
@@ -1518,6 +1535,33 @@ local function stopAutoDesync()
     setDesyncState(false)
     if autoDesyncCharacterConn then autoDesyncCharacterConn:Disconnect(); autoDesyncCharacterConn = nil end
     notify("❌ Auto Desync desactivado.", THEME.Red, 2.2)
+end
+
+local function syncDesyncModeToggles(changedMode, isEnabled)
+    if not isEnabled then
+        local respawnCtrl = toggleControllers[DESYNC_MODE_RESPAWN_KEY]
+        local clonerCtrl = toggleControllers[DESYNC_MODE_CLONER_KEY]
+        if respawnCtrl and clonerCtrl and not respawnCtrl:GetState() and not clonerCtrl:GetState() then
+            respawnCtrl:SetState(true, true)
+            desyncMode = "Respawn"
+        end
+        return
+    end
+
+    if changedMode == "Respawn" then
+        desyncMode = "Respawn"
+        local clonerCtrl = toggleControllers[DESYNC_MODE_CLONER_KEY]
+        if clonerCtrl and clonerCtrl:GetState() then
+            clonerCtrl:SetState(false, true)
+        end
+    else
+        desyncMode = "Cloner"
+        local respawnCtrl = toggleControllers[DESYNC_MODE_RESPAWN_KEY]
+        if respawnCtrl and respawnCtrl:GetState() then
+            respawnCtrl:SetState(false, true)
+        end
+    end
+    notify("Modo Desync: " .. desyncMode, THEME.Primary, 1.8)
 end
 
 -- ============================================================
@@ -1529,6 +1573,26 @@ _G.KYNAddToggle("Main", {Name = "Auto Steal",  Disabled = true})
 _G.KYNAddToggle("Main", {Name = "Auto Desync", Callback = function(s)
     if s then startAutoDesync() else stopAutoDesync() end
 end})
+_G.KYNAddToggle("Main", {Name = "Desync Mode: Respawn", Callback = function(s)
+    syncDesyncModeToggles("Respawn", s)
+end})
+_G.KYNAddToggle("Main", {Name = "Desync Mode: Cloner", Callback = function(s)
+    syncDesyncModeToggles("Cloner", s)
+end})
+
+task.defer(function()
+    local respawnCtrl = toggleControllers[DESYNC_MODE_RESPAWN_KEY]
+    local clonerCtrl = toggleControllers[DESYNC_MODE_CLONER_KEY]
+    if not respawnCtrl or not clonerCtrl then return end
+
+    if respawnCtrl:GetState() and clonerCtrl:GetState() then
+        clonerCtrl:SetState(false, true)
+    elseif not respawnCtrl:GetState() and not clonerCtrl:GetState() then
+        respawnCtrl:SetState(true, true)
+    end
+
+    desyncMode = clonerCtrl:GetState() and "Cloner" or "Respawn"
+end)
 
 -- VISUAL TAB
 _G.KYNAddToggle("Visual", {Name = "ESP Player", Callback = function(s)
