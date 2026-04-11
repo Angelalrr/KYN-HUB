@@ -10,12 +10,55 @@ local Players           = game:GetService("Players")
 local Workspace         = game:GetService("Workspace")
 local Lighting          = game:GetService("Lighting")
 local CollectionService = game:GetService("CollectionService")
+local HttpService       = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
+local configFileName = "KYNHub_Config.json"
+
+local defaultConfig = {
+    ToggleStates = {},
+}
+local currentConfig = {
+    ToggleStates = {},
+}
+
+local function loadConfig()
+    currentConfig = {
+        ToggleStates = {},
+    }
+    for k, v in pairs(defaultConfig) do
+        currentConfig[k] = v
+    end
+    if isfile and readfile and isfile(configFileName) then
+        pcall(function()
+            local decoded = HttpService:JSONDecode(readfile(configFileName))
+            if type(decoded) == "table" then
+                for k, v in pairs(decoded) do
+                    currentConfig[k] = v
+                end
+            end
+        end)
+    end
+    if type(currentConfig.ToggleStates) ~= "table" then
+        currentConfig.ToggleStates = {}
+    end
+end
+
+local function saveConfig()
+    if writefile then
+        pcall(function()
+            writefile(configFileName, HttpService:JSONEncode(currentConfig))
+        end)
+    end
+end
+
+loadConfig()
 
 local guiName = "KYNHubGUI_Electric"
 local OLD = CoreGui:FindFirstChild(guiName)
 if OLD then OLD:Destroy() end
+local oldNotif = CoreGui:FindFirstChild("KYNHubNotifications")
+if oldNotif then oldNotif:Destroy() end
 
 -- ===========================
 -- PALETA DE COLORES
@@ -52,6 +95,69 @@ local function stroke(parent, color, thick)
     s.Thickness = thick or 1.5
     s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     return s
+end
+
+local notifGui = Instance.new("ScreenGui")
+notifGui.Name = "KYNHubNotifications"
+notifGui.ResetOnSpawn = false
+notifGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pcall(function() notifGui.Parent = CoreGui end)
+if not notifGui.Parent then
+    local pg = LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 3))
+    if pg then notifGui.Parent = pg end
+end
+
+local notifHolder = Instance.new("Frame", notifGui)
+notifHolder.Size = UDim2.new(1, 0, 1, 0)
+notifHolder.BackgroundTransparency = 1
+
+local notifLayout = Instance.new("UIListLayout", notifHolder)
+notifLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+notifLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+notifLayout.Padding = UDim.new(0, 8)
+
+local notifPadding = Instance.new("UIPadding", notifHolder)
+notifPadding.PaddingTop = UDim.new(0, 12)
+
+local function notify(msg, color, lifetime)
+    local holder = Instance.new("Frame", notifHolder)
+    holder.Size = UDim2.new(0, 320, 0, 48)
+    holder.BackgroundTransparency = 1
+    holder.LayoutOrder = os.clock() * 1000
+
+    local panel = Instance.new("Frame", holder)
+    panel.Size = UDim2.new(1, 0, 1, 0)
+    panel.Position = UDim2.new(0, 0, 0, -70)
+    panel.BackgroundColor3 = THEME.Frame
+    corner(panel, 10)
+
+    local panelStroke = stroke(panel, Color3.new(1, 1, 1), 3)
+    local panelGrad = Instance.new("UIGradient", panelStroke)
+    panelGrad.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, THEME.Secondary),
+        ColorSequenceKeypoint.new(0.25, THEME.DarkBlue),
+        ColorSequenceKeypoint.new(0.5, THEME.Primary),
+        ColorSequenceKeypoint.new(0.75, THEME.DarkBlue),
+        ColorSequenceKeypoint.new(1, THEME.Secondary),
+    }
+
+    local txt = Instance.new("TextLabel", panel)
+    txt.Size = UDim2.new(1, -16, 1, -10)
+    txt.Position = UDim2.new(0, 8, 0, 5)
+    txt.BackgroundTransparency = 1
+    txt.Font = Enum.Font.GothamBold
+    txt.TextSize = 13
+    txt.TextWrapped = true
+    txt.Text = msg
+    txt.TextColor3 = color or THEME.Neon1
+
+    tween(panel, {Position = UDim2.new(0, 0, 0, 0)}, 0.32, Enum.EasingStyle.Back)
+    task.delay(lifetime or 2.6, function()
+        if not panel.Parent then return end
+        tween(panel, {Position = UDim2.new(0, 0, 0, -70)}, 0.28, Enum.EasingStyle.Quad)
+        task.wait(0.3)
+        if holder then holder:Destroy() end
+    end)
 end
 
 -- ===========================
@@ -153,7 +259,11 @@ local gui = Instance.new("ScreenGui")
 gui.Name = guiName
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-gui.Parent = CoreGui
+pcall(function() gui.Parent = CoreGui end)
+if not gui.Parent then
+    local pg = LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 3))
+    if pg then gui.Parent = pg end
+end
 
 -- ==========================================
 -- // BOTÓN FLOTANTE
@@ -379,6 +489,7 @@ contentFrame.BackgroundTransparency = 1
 contentFrame.ZIndex = 2
 
 local tabs, tabButtons, tabStrokes = {}, {}, {}
+local toggleControllers = {}
 
 local function createTab(name)
     local tab = Instance.new("ScrollingFrame", contentFrame)
@@ -492,15 +603,56 @@ _G.KYNAddToggle = function(tabName, data)
     btn.Text = "   " .. (data.Name or "Toggle")
     btn.TextColor3 = THEME.Dim
 
-    local state = false
-    btn.Activated:Connect(function()
-        state = not state
-        tween(dot,        {Position = state and UDim2.new(1, -14, 0.5, -6) or UDim2.new(0, 2, 0.5, -6)}, 0.25, Enum.EasingStyle.Back)
-        tween(track,      {BackgroundColor3 = state and THEME.Primary or Color3.fromRGB(30, 45, 70)}, 0.2)
-        tween(btn,        {TextColor3 = state and THEME.Neon1 or THEME.Dim}, 0.2)
-        tween(bStroke,    {Color = state and THEME.Primary or THEME.BorderOff}, 0.2)
-        tween(trackStroke,{Color = state and THEME.Primary or THEME.BorderOff}, 0.2)
+    local toggleKey = string.format("%s::%s", tabName, data.Name or "Toggle")
+    local state = currentConfig.ToggleStates[toggleKey] == true
+
+    local function applyStateVisual(immediate)
+        local targetDotPos = state and UDim2.new(1, -14, 0.5, -6) or UDim2.new(0, 2, 0.5, -6)
+        local targetTrack = state and THEME.Primary or Color3.fromRGB(30, 45, 70)
+        local targetText = state and THEME.Neon1 or THEME.Dim
+        local targetStroke = state and THEME.Primary or THEME.BorderOff
+        if immediate then
+            dot.Position = targetDotPos
+            track.BackgroundColor3 = targetTrack
+            btn.TextColor3 = targetText
+            bStroke.Color = targetStroke
+            trackStroke.Color = targetStroke
+        else
+            tween(dot, {Position = targetDotPos}, 0.25, Enum.EasingStyle.Back)
+            tween(track, {BackgroundColor3 = targetTrack}, 0.2)
+            tween(btn, {TextColor3 = targetText}, 0.2)
+            tween(bStroke, {Color = targetStroke}, 0.2)
+            tween(trackStroke, {Color = targetStroke}, 0.2)
+        end
+    end
+
+    local function runCallback()
         if data.Callback then pcall(data.Callback, state) end
+    end
+
+    local controller = {}
+    function controller:SetState(newState, silent)
+        local nextState = newState == true
+        if state == nextState then return end
+        state = nextState
+        currentConfig.ToggleStates[toggleKey] = state
+        saveConfig()
+        applyStateVisual(false)
+        runCallback()
+        if not silent then
+            notify(string.format("%s: %s", data.Name or "Toggle", state and "ON" or "OFF"), state and THEME.Green or THEME.Red, 1.8)
+        end
+    end
+    function controller:GetState()
+        return state
+    end
+    toggleControllers[toggleKey] = controller
+
+    applyStateVisual(true)
+    task.defer(runCallback)
+
+    btn.Activated:Connect(function()
+        controller:SetState(not state, false)
     end)
 end
 
@@ -1353,13 +1505,88 @@ local function stopAntiBeeDisco()
     abdConns = {}
 end
 
+-- ===========================
+-- MAIN: AUTO DESYNC
+-- ===========================
+local autoDesyncEnabled = false
+local autoDesyncCharacterConn = nil
+local desyncMode = nil
+local DESYNC_RESPAWN_KEY = "Main::Desync Respawn"
+local DESYNC_CLONER_KEY = "Main::Desync Cloner"
+
+local function setDesyncState(state)
+    pcall(function()
+        if raknet and raknet.desync then
+            raknet.desync(state)
+        end
+    end)
+end
+
+local function startAutoDesync()
+    if autoDesyncEnabled then return end
+    autoDesyncEnabled = true
+    setDesyncState(true)
+    if desyncMode == "Respawn" then
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health > 0 then
+            hum.Health = 0
+        end
+    end
+    if autoDesyncCharacterConn then autoDesyncCharacterConn:Disconnect() end
+    autoDesyncCharacterConn = LocalPlayer.CharacterAdded:Connect(function()
+        task.wait(0.8)
+        if autoDesyncEnabled then
+            setDesyncState(true)
+            notify("⚡ Auto Desync reactivado tras respawn.", THEME.Primary, 2.4)
+        end
+    end)
+    notify("⚡ Desync " .. (desyncMode or "Mode") .. " activado.", THEME.Green, 2.2)
+end
+
+local function stopAutoDesync()
+    if not autoDesyncEnabled then return end
+    autoDesyncEnabled = false
+    setDesyncState(false)
+    if autoDesyncCharacterConn then autoDesyncCharacterConn:Disconnect(); autoDesyncCharacterConn = nil end
+    notify("❌ Auto Desync desactivado.", THEME.Red, 2.2)
+end
+
+local function setDesyncMode(mode, enabled)
+    local respawnCtrl = toggleControllers[DESYNC_RESPAWN_KEY]
+    local clonerCtrl = toggleControllers[DESYNC_CLONER_KEY]
+    if enabled then
+        desyncMode = mode
+        if mode == "Respawn" and clonerCtrl and clonerCtrl:GetState() then
+            clonerCtrl:SetState(false, true)
+        elseif mode == "Cloner" and respawnCtrl and respawnCtrl:GetState() then
+            respawnCtrl:SetState(false, true)
+        end
+        if not autoDesyncEnabled then
+            startAutoDesync()
+        else
+            notify("Modo desync cambiado a " .. mode .. ".", THEME.Primary, 1.8)
+        end
+    else
+        local otherOn = (mode == "Respawn" and clonerCtrl and clonerCtrl:GetState()) or (mode == "Cloner" and respawnCtrl and respawnCtrl:GetState())
+        if not otherOn then
+            desyncMode = nil
+            stopAutoDesync()
+        end
+    end
+end
+
 -- ============================================================
 -- // REGISTRO DE TODOS LOS TOGGLES
 -- ============================================================
 
 -- MAIN TAB
-_G.KYNAddToggle("Main", {Name = "Auto Steal",  Disabled = true})
-_G.KYNAddToggle("Main", {Name = "Auto Desync", Disabled = true})
+_G.KYNAddToggle("Main", {Name = "Desync Respawn", Callback = function(s)
+    setDesyncMode("Respawn", s)
+end})
+_G.KYNAddToggle("Main", {Name = "Desync Cloner", Callback = function(s)
+    setDesyncMode("Cloner", s)
+end)
 
 -- VISUAL TAB
 _G.KYNAddToggle("Visual", {Name = "ESP Player", Callback = function(s)
