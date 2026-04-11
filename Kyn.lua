@@ -101,7 +101,11 @@ local notifGui = Instance.new("ScreenGui")
 notifGui.Name = "KYNHubNotifications"
 notifGui.ResetOnSpawn = false
 notifGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-notifGui.Parent = CoreGui
+pcall(function() notifGui.Parent = CoreGui end)
+if not notifGui.Parent then
+    local pg = LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 3))
+    if pg then notifGui.Parent = pg end
+end
 
 local notifHolder = Instance.new("Frame", notifGui)
 notifHolder.Size = UDim2.new(1, 0, 1, 0)
@@ -255,7 +259,11 @@ local gui = Instance.new("ScreenGui")
 gui.Name = guiName
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-gui.Parent = CoreGui
+pcall(function() gui.Parent = CoreGui end)
+if not gui.Parent then
+    local pg = LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 3))
+    if pg then gui.Parent = pg end
+end
 
 -- ==========================================
 -- // BOTÓN FLOTANTE
