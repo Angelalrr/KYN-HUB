@@ -388,7 +388,9 @@ end
 -- ===========================
 -- SETUP PRINCIPAL
 -- ===========================
-local gui = Instance.new("ScreenGui")
+local gui, toggleBtn, btnGradient, mainDragFrame, mainFrame, uiScale, mainGradient
+do
+gui = Instance.new("ScreenGui")
 gui.Name = guiName
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -400,7 +402,7 @@ btnDragFrame.Position = UDim2.new(0, 20, 0.2, 0)
 btnDragFrame.BackgroundTransparency = 1
 btnDragFrame.Active = true
 
-local toggleBtn = Instance.new("ImageButton", btnDragFrame)
+toggleBtn = Instance.new("ImageButton", btnDragFrame)
 toggleBtn.Size = UDim2.new(1, 0, 1, 0)
 toggleBtn.Image = "rbxassetid://82945336379835"
 toggleBtn.BackgroundColor3 = THEME.Frame
@@ -408,7 +410,7 @@ toggleBtn.Active = true
 corner(toggleBtn, 50)
 
 local btnStroke = stroke(toggleBtn, Color3.new(1, 1, 1), 3)
-local btnGradient = Instance.new("UIGradient", btnStroke)
+btnGradient = Instance.new("UIGradient", btnStroke)
 btnGradient.Color = ColorSequence.new{
     ColorSequenceKeypoint.new(0,    THEME.Secondary),
     ColorSequenceKeypoint.new(0.25, THEME.DarkBlue),
@@ -426,24 +428,24 @@ toggleBtn.MouseLeave:Connect(function()
     tween(toggleBtn, {Size = UDim2.new(1, 0, 1, 0), Position = UDim2.new(0, 0, 0, 0)}, 0.2, Enum.EasingStyle.Back)
 end)
 
-local mainDragFrame = Instance.new("Frame", gui)
+mainDragFrame = Instance.new("Frame", gui)
 mainDragFrame.Size = UDim2.new(0, 300, 0, 370)
 mainDragFrame.Position = UDim2.new(0.5, -150, 0.5, -185)
 mainDragFrame.BackgroundTransparency = 1
 mainDragFrame.Active = true
 mainDragFrame.Visible = false
 
-local mainFrame = Instance.new("Frame", mainDragFrame)
+mainFrame = Instance.new("Frame", mainDragFrame)
 mainFrame.Size = UDim2.new(1, 0, 1, 0)
 mainFrame.BackgroundColor3 = THEME.BG
 mainFrame.ClipsDescendants = false
 corner(mainFrame, 12)
 
-local uiScale = Instance.new("UIScale", mainDragFrame)
+uiScale = Instance.new("UIScale", mainDragFrame)
 uiScale.Scale = 0
 
 local mainStroke = stroke(mainFrame, Color3.new(1, 1, 1), 4)
-local mainGradient = Instance.new("UIGradient", mainStroke)
+mainGradient = Instance.new("UIGradient", mainStroke)
 mainGradient.Color = btnGradient.Color
 
 local glass = Instance.new("Frame", mainFrame)
@@ -762,6 +764,7 @@ _G.KYNAddToggle = function(tabName, data)
 
     return controller
 end
+end -- do-block: SETUP PRINCIPAL
 
 local speed = 2.5
 local distance = 6
@@ -784,6 +787,7 @@ end)
 
 local isOpen = false
 local isAnimating = false
+local doFloatToggle -- forward declaration for F key bind
 
 -- ============================================================
 -- // HUD DE FPS / PING (PERMANENTE, ARRASTRABLE)
@@ -957,6 +961,12 @@ end)
 UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == Enum.KeyCode.RightShift then toggleMenu() end
+    if input.KeyCode == Enum.KeyCode.F then
+        if not floatBtnFrame or not floatBtnFrame.Visible then
+            toggleFloatButton(true)
+        end
+        doFloatToggle()
+    end
 end)
 
 -- ============================================================
@@ -1132,10 +1142,16 @@ local function startAutoSteal()
         end
     end
 
-    if CoreGui:FindFirstChild("KYN_AutoStealGUI") then CoreGui.KYN_AutoStealGUI:Destroy() end
-    autoStealGui = Instance.new("ScreenGui", CoreGui)
+    local oldASG = CoreGui:FindFirstChild("KYN_AutoStealGUI")
+    if oldASG then oldASG:Destroy() end
+    autoStealGui = Instance.new("ScreenGui")
     autoStealGui.Name = "KYN_AutoStealGUI"
     autoStealGui.ResetOnSpawn = false
+    autoStealGui.IgnoreGuiInset = true
+    autoStealGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    if not pcall(function() autoStealGui.Parent = CoreGui end) then
+        autoStealGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
 
     local asMain = Instance.new("Frame", autoStealGui)
     asMain.Size = UDim2.new(0, 300, 0, 350)
@@ -2778,8 +2794,91 @@ local floatTargetY    = nil
 local floatPlat       = nil
 
 local FLOAT_STUDS  = 9
-local FLOAT_SPEED  = 6      -- Subida lenta (era 18)
+local FLOAT_SPEED  = 12     -- Subida moderada (era 6)
 local FLOAT_MARGIN = 0.15
+
+local function doFloatToggle()
+    local char = LocalPlayer.Character
+    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+
+    floating = not floating
+    local fBtn = floatBtnFrame and floatBtnFrame:FindFirstChildOfClass("TextButton")
+
+    if floating then
+        if fBtn then fBtn.Text = "Float ☁"; fBtn.TextColor3 = THEME.Green end
+
+        floatTargetY = hrp.Position.Y + FLOAT_STUDS
+
+        floatBodyVel          = Instance.new("BodyVelocity")
+        floatBodyVel.Name     = "FloatVelocity"
+        floatBodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        floatBodyVel.Velocity = Vector3.new(0, FLOAT_SPEED, 0)
+        floatBodyVel.Parent   = hrp
+
+        hum:ChangeState(Enum.HumanoidStateType.Physics)
+
+        floatPlat              = Instance.new("Part")
+        floatPlat.Name         = "KYN_FloatPlat"
+        floatPlat.Size         = Vector3.new(5, 0.4, 5)
+        floatPlat.Transparency = 0.35
+        floatPlat.Color        = THEME.Primary
+        floatPlat.Material     = Enum.Material.Neon
+        floatPlat.Anchored     = true
+        floatPlat.CanCollide   = true
+        floatPlat.CastShadow   = false
+        floatPlat.Parent       = Workspace
+
+        if not floatRenderConn then
+            floatRenderConn = RunService.RenderStepped:Connect(function()
+                if not floating or not floatBodyVel or not floatBodyVel.Parent then return end
+                local c2 = LocalPlayer.Character
+                local hrp2 = c2 and c2:FindFirstChild("HumanoidRootPart")
+                local hum2 = c2 and c2:FindFirstChildOfClass("Humanoid")
+                if not hrp2 or not hum2 then return end
+                local currentY = hrp2.Position.Y
+                local moveDir  = hum2.MoveDirection
+                local diff     = floatTargetY - currentY
+                local yVel
+                if math.abs(diff) > FLOAT_MARGIN then
+                    yVel = math.clamp(diff * 5, -FLOAT_SPEED, FLOAT_SPEED)
+                else
+                    yVel = 0
+                end
+                local walkSpd = hum2.WalkSpeed > 0 and hum2.WalkSpeed or 16
+                floatBodyVel.Velocity = (moveDir * walkSpd) + Vector3.new(0, yVel, 0)
+                hrp2.RotVelocity = Vector3.zero
+                if floatPlat then
+                    floatPlat.CFrame = hrp2.CFrame - Vector3.new(0, 3.2, 0)
+                end
+            end)
+        end
+
+        task.delay(7, function()
+            if not floating then return end
+            floating     = false
+            floatTargetY = nil
+            local fb2 = floatBtnFrame and floatBtnFrame:FindFirstChildOfClass("TextButton")
+            if fb2 then fb2.Text = "Float"; fb2.TextColor3 = THEME.Primary end
+            if floatBodyVel then floatBodyVel:Destroy(); floatBodyVel = nil end
+            if floatPlat    then floatPlat:Destroy();    floatPlat    = nil end
+            if floatRenderConn then floatRenderConn:Disconnect(); floatRenderConn = nil end
+            pcall(function()
+                local c3 = LocalPlayer.Character
+                local h3 = c3 and c3:FindFirstChildOfClass("Humanoid")
+                if h3 then h3:ChangeState(Enum.HumanoidStateType.Freefall) end
+            end)
+            KYNNotify("Float", "⏱ 7 segundos — Float desactivado", "☁", THEME.Dim, 2)
+        end)
+    else
+        if fBtn then fBtn.Text = "Float"; fBtn.TextColor3 = THEME.Primary end
+        floatTargetY = nil
+        if floatBodyVel then floatBodyVel:Destroy(); floatBodyVel = nil end
+        if floatPlat    then floatPlat:Destroy();    floatPlat    = nil end
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+    end
+end
 
 local function toggleFloatButton(state)
     if state then
@@ -2813,95 +2912,7 @@ local function toggleFloatButton(state)
             -- Drag con guardado de posición
             MakeDraggable(floatBtnFrame, fBtn, "pos_floatBtn")
 
-            fBtn.Activated:Connect(function()
-                local char = LocalPlayer.Character
-                local hrp  = char and char:FindFirstChild("HumanoidRootPart")
-                local hum  = char and char:FindFirstChildOfClass("Humanoid")
-                if not hrp or not hum then return end
-
-                floating = not floating
-
-                if floating then
-                    fBtn.Text       = "Float ☁"
-                    fBtn.TextColor3 = THEME.Green
-
-                    -- Altura objetivo fija desde el punto de activación
-                    floatTargetY = hrp.Position.Y + FLOAT_STUDS
-
-                    floatBodyVel          = Instance.new("BodyVelocity")
-                    floatBodyVel.Name     = "FloatVelocity"
-                    floatBodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                    floatBodyVel.Velocity = Vector3.new(0, FLOAT_SPEED, 0)
-                    floatBodyVel.Parent   = hrp
-
-                    hum:ChangeState(Enum.HumanoidStateType.Physics)
-
-                    -- Plataforma VISIBLE bajo los pies
-                    floatPlat              = Instance.new("Part")
-                    floatPlat.Name         = "KYN_FloatPlat"
-                    floatPlat.Size         = Vector3.new(5, 0.4, 5)
-                    floatPlat.Transparency = 0.35
-                    floatPlat.Color        = THEME.Primary
-                    floatPlat.Material     = Enum.Material.Neon
-                    floatPlat.Anchored     = true
-                    floatPlat.CanCollide   = true
-                    floatPlat.CastShadow   = false
-                    floatPlat.Parent       = Workspace
-
-                    if not floatRenderConn then
-                        floatRenderConn = RunService.RenderStepped:Connect(function()
-                            if not floating or not floatBodyVel or not floatBodyVel.Parent then return end
-
-                            local currentY = hrp.Position.Y
-                            local moveDir  = hum.MoveDirection
-                            local diff     = floatTargetY - currentY
-
-                            -- Control Y suave y LENTO (proporcional al error)
-                            local yVel
-                            if math.abs(diff) > FLOAT_MARGIN then
-                                yVel = math.clamp(diff * 3, -FLOAT_SPEED, FLOAT_SPEED)
-                            else
-                                yVel = 0
-                            end
-
-                            local walkSpd = hum.WalkSpeed > 0 and hum.WalkSpeed or 16
-                            floatBodyVel.Velocity = (moveDir * walkSpd) + Vector3.new(0, yVel, 0)
-                            hrp.RotVelocity       = Vector3.zero
-
-                            if floatPlat then
-                                floatPlat.CFrame = hrp.CFrame - Vector3.new(0, 3.2, 0)
-                            end
-                        end)
-                    end
-
-                    -- ⏱ AUTO-DESACTIVAR DESPUÉS DE 7 SEGUNDOS
-                    task.delay(7, function()
-                        if not floating then return end
-                        floating     = false
-                        floatTargetY = nil
-                        fBtn.Text       = "Float"
-                        fBtn.TextColor3 = THEME.Primary
-                        if floatBodyVel then floatBodyVel:Destroy(); floatBodyVel = nil end
-                        if floatPlat    then floatPlat:Destroy();    floatPlat    = nil end
-                        if floatRenderConn then floatRenderConn:Disconnect(); floatRenderConn = nil end
-                        pcall(function()
-                            local c = LocalPlayer.Character
-                            local h = c and c:FindFirstChildOfClass("Humanoid")
-                            if h then h:ChangeState(Enum.HumanoidStateType.Freefall) end
-                        end)
-                        KYNNotify("Float", "⏱ 7 segundos — Float desactivado", "☁", THEME.Dim, 2)
-                    end)
-                else
-                    fBtn.Text       = "Float"
-                    fBtn.TextColor3 = THEME.Primary
-                    floatTargetY    = nil
-
-                    if floatBodyVel then floatBodyVel:Destroy(); floatBodyVel = nil end
-                    if floatPlat    then floatPlat:Destroy();    floatPlat    = nil end
-
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                end
-            end)
+            fBtn.Activated:Connect(doFloatToggle)
         end
         floatBtnFrame.Visible = true
     else
@@ -2956,9 +2967,14 @@ local function startStealSpeed()
     -- Crear GUI si no existe
     if ssGui and ssGui.Parent then return end
 
-    ssGui = Instance.new("ScreenGui", CoreGui)
-    ssGui.Name        = "KYN_StealSpeedGUI"
-    ssGui.ResetOnSpawn = false
+    ssGui = Instance.new("ScreenGui")
+    ssGui.Name            = "KYN_StealSpeedGUI"
+    ssGui.ResetOnSpawn    = false
+    ssGui.IgnoreGuiInset  = true
+    ssGui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
+    if not pcall(function() ssGui.Parent = CoreGui end) then
+        ssGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
 
     local ssFrame = Instance.new("Frame", ssGui)
     ssFrame.Size              = UDim2.new(0, 260, 0, 175)
