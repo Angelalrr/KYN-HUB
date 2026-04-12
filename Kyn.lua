@@ -13,6 +13,69 @@ local CollectionService = game:GetService("CollectionService")
 local HttpService       = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+-- ============================================================
+-- // WIKI IMAGE SYSTEM (Auto-destrucción de archivos temp)
+-- ============================================================
+local WIKI_API             = "https://stealabrainrot.fandom.com/api.php"
+local brainrotImageCache   = {}   -- [name] = assetId | "loading" | ""
+
+-- Limpieza de residuos de ejecuciones anteriores
+pcall(function()
+    for _, file in ipairs(listfiles("") or {}) do
+        if tostring(file):find("temp_brainrot_") then pcall(delfile, file) end
+    end
+end)
+
+local function fetchBrainrotImage(name, callback)
+    if not name or name == "" then callback("") return end
+    if brainrotImageCache[name] then
+        if brainrotImageCache[name] ~= "loading" then
+            callback(brainrotImageCache[name])
+        end
+        return
+    end
+    brainrotImageCache[name] = "loading"
+    task.spawn(function()
+        -- 1. Consultar la Wiki
+        local ok, res = pcall(function()
+            return request({
+                Url    = WIKI_API .. "?action=query&titles=" .. HttpService:UrlEncode(name)
+                       .. "&prop=pageimages&pithumbsize=128&format=json&origin=*",
+                Method = "GET"
+            })
+        end)
+        if not ok or not res or res.StatusCode ~= 200 then
+            brainrotImageCache[name] = "" ; callback("") ; return
+        end
+        local data
+        pcall(function() data = HttpService:JSONDecode(res.Body) end)
+        local thumbUrl = nil
+        if data and data.query and data.query.pages then
+            for _, page in pairs(data.query.pages) do
+                if page.thumbnail then thumbUrl = page.thumbnail.source ; break end
+            end
+        end
+        if not thumbUrl then brainrotImageCache[name] = "" ; callback("") ; return end
+        -- 2. Descargar imagen
+        local ok2, imgData = pcall(function()
+            return request({ Url = thumbUrl, Method = "GET" }).Body
+        end)
+        if not ok2 or not imgData then brainrotImageCache[name] = "" ; callback("") ; return end
+        -- 3. Guardar temporalmente y convertir a asset
+        local tempFile = "temp_brainrot_" .. HttpService:GenerateGUID(false):sub(1, 8) .. ".png"
+        local asset = ""
+        pcall(function()
+            writefile(tempFile, imgData)
+            asset = getcustomasset(tempFile)
+            task.delay(3, function()
+                pcall(function() if isfile(tempFile) then delfile(tempFile) end end)
+            end)
+        end)
+        brainrotImageCache[name] = asset
+        callback(asset)
+    end)
+end
+
 local LocalPlayer = Players.LocalPlayer
 local isForcingReset = false -- Variable para evitar conflictos entre Desync y Anti Ragdoll
 
@@ -270,9 +333,26 @@ local function makeStyledBillboard(adornee, size, offset, textColor, text, gradC
     return bb, lbl
 end
 
-local function MakeDraggable(dragFrame, handle)
+-- saveKey opcional: si se pasa, guarda/restaura la posición del frame en kynConfig
+local function MakeDraggable(dragFrame, handle, saveKey)
     handle = handle or dragFrame
     local dragging, dragInput, dragStart, startPos
+
+    -- Restaurar posición guardada
+    if saveKey and kynConfig[saveKey] then
+        local p = kynConfig[saveKey]
+        pcall(function()
+            dragFrame.Position = UDim2.new(p.XS, p.XO, p.YS, p.YO)
+        end)
+    end
+
+    local function savePos()
+        if saveKey then
+            local p = dragFrame.Position
+            kynConfig[saveKey] = {XS=p.X.Scale, XO=p.X.Offset, YS=p.Y.Scale, YO=p.Y.Offset}
+            saveKYNConfig()
+        end
+    end
 
     handle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -282,6 +362,7 @@ local function MakeDraggable(dragFrame, handle)
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     dragging = false
+                    savePos()
                 end
             end)
         end
@@ -336,7 +417,7 @@ btnGradient.Color = ColorSequence.new{
     ColorSequenceKeypoint.new(1,    THEME.Secondary),
 }
 
-MakeDraggable(btnDragFrame, toggleBtn)
+MakeDraggable(btnDragFrame, toggleBtn, "pos_toggleBtn")
 
 toggleBtn.MouseEnter:Connect(function()
     tween(toggleBtn, {Size = UDim2.new(1.1, 0, 1.1, 0), Position = UDim2.new(-0.05, 0, -0.05, 0)}, 0.2, Enum.EasingStyle.Back)
@@ -412,7 +493,7 @@ titleLabel.TextSize = 15
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.TextColor3 = THEME.Primary
 
-MakeDraggable(mainDragFrame, header)
+MakeDraggable(mainDragFrame, header, "pos_mainFrame")
 
 local closeBtn = Instance.new("TextButton", header)
 closeBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -704,6 +785,146 @@ end)
 local isOpen = false
 local isAnimating = false
 
+-- ============================================================
+-- // HUD DE FPS / PING (PERMANENTE, ARRASTRABLE)
+-- ============================================================
+do
+    local fpsCount  = 0
+    local fpsClock  = os.clock()
+    local currentFPS = 0
+
+    local hudFrame = Instance.new("Frame", gui)
+    hudFrame.Name              = "KYN_FPS_HUD"
+    hudFrame.Size              = UDim2.new(0, 310, 0, 38)
+    hudFrame.Position          = UDim2.new(0.5, -155, 0, -50)   -- empieza fuera de pantalla
+    hudFrame.BackgroundColor3  = THEME.BG
+    hudFrame.Active            = true
+    hudFrame.ZIndex            = 50
+    corner(hudFrame, 50)
+
+    local hudStroke = stroke(hudFrame, Color3.new(1,1,1), 2.5)
+    local hudGrad   = Instance.new("UIGradient", hudStroke)
+    hudGrad.Color   = ColorSequence.new{
+        ColorSequenceKeypoint.new(0,    THEME.Secondary),
+        ColorSequenceKeypoint.new(0.25, THEME.DarkBlue),
+        ColorSequenceKeypoint.new(0.5,  THEME.Primary),
+        ColorSequenceKeypoint.new(0.75, THEME.DarkBlue),
+        ColorSequenceKeypoint.new(1,    THEME.Secondary),
+    }
+
+    -- Indicador lateral de color (barra izquierda)
+    local hudBar = Instance.new("Frame", hudFrame)
+    hudBar.Size              = UDim2.new(0, 4, 0.65, 0)
+    hudBar.Position          = UDim2.new(0, 10, 0.175, 0)
+    hudBar.BackgroundColor3  = THEME.Primary
+    hudBar.BorderSizePixel   = 0
+    corner(hudBar, 50)
+
+    -- Nombre del script (con degradado animado)
+    local hudTitle = Instance.new("TextLabel", hudFrame)
+    hudTitle.Size               = UDim2.new(0, 90, 1, 0)
+    hudTitle.Position           = UDim2.new(0, 20, 0, 0)
+    hudTitle.BackgroundTransparency = 1
+    hudTitle.Text               = "⚡ KYN HUB"
+    hudTitle.Font               = Enum.Font.GothamBlack
+    hudTitle.TextSize           = 13
+    hudTitle.TextColor3         = THEME.Primary
+    hudTitle.TextXAlignment     = Enum.TextXAlignment.Left
+    hudTitle.ZIndex             = 51
+
+    local hudTitleGrad = Instance.new("UIGradient", hudTitle)
+    hudTitleGrad.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0,   THEME.Primary),
+        ColorSequenceKeypoint.new(0.5, THEME.Secondary),
+        ColorSequenceKeypoint.new(1,   THEME.Primary),
+    }
+    hudTitleGrad.Rotation = 0
+
+    -- Separador vertical
+    local hudSep = Instance.new("Frame", hudFrame)
+    hudSep.Size             = UDim2.new(0, 1, 0.5, 0)
+    hudSep.Position         = UDim2.new(0, 116, 0.25, 0)
+    hudSep.BackgroundColor3 = THEME.BorderOff
+    hudSep.BorderSizePixel  = 0
+
+    -- FPS Label
+    local hudFPSLbl = Instance.new("TextLabel", hudFrame)
+    hudFPSLbl.Size               = UDim2.new(0, 85, 1, 0)
+    hudFPSLbl.Position           = UDim2.new(0, 124, 0, 0)
+    hudFPSLbl.BackgroundTransparency = 1
+    hudFPSLbl.Text               = "FPS: --"
+    hudFPSLbl.Font               = Enum.Font.GothamBold
+    hudFPSLbl.TextSize           = 13
+    hudFPSLbl.TextColor3         = THEME.Primary
+    hudFPSLbl.TextXAlignment     = Enum.TextXAlignment.Left
+    hudFPSLbl.ZIndex             = 51
+
+    -- Separador vertical 2
+    local hudSep2 = Instance.new("Frame", hudFrame)
+    hudSep2.Size             = UDim2.new(0, 1, 0.5, 0)
+    hudSep2.Position         = UDim2.new(0, 213, 0.25, 0)
+    hudSep2.BackgroundColor3 = THEME.BorderOff
+    hudSep2.BorderSizePixel  = 0
+
+    -- Ping Label
+    local hudPingLbl = Instance.new("TextLabel", hudFrame)
+    hudPingLbl.Size               = UDim2.new(0, 90, 1, 0)
+    hudPingLbl.Position           = UDim2.new(0, 220, 0, 0)
+    hudPingLbl.BackgroundTransparency = 1
+    hudPingLbl.Text               = "PING: --"
+    hudPingLbl.Font               = Enum.Font.GothamBold
+    hudPingLbl.TextSize           = 13
+    hudPingLbl.TextColor3         = Color3.fromRGB(255, 180, 50)
+    hudPingLbl.TextXAlignment     = Enum.TextXAlignment.Left
+    hudPingLbl.ZIndex             = 51
+
+    -- Draggable
+    MakeDraggable(hudFrame, hudFrame, "pos_fpsHud")
+
+    -- Animación de entrada (desliza desde arriba)
+    task.delay(0.6, function()
+        TweenService:Create(hudFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+            { Position = UDim2.new(0.5, -155, 0, 8) }):Play()
+    end)
+
+    -- Loop de actualización FPS + Ping + animación degradado
+    RunService.RenderStepped:Connect(function()
+        fpsCount += 1
+        hudGrad.Rotation    = (hudGrad.Rotation    + 2) % 360
+        hudTitleGrad.Rotation = (hudTitleGrad.Rotation + 1.5) % 360
+
+        local now = os.clock()
+        if now - fpsClock >= 0.5 then
+            currentFPS = math.round(fpsCount / (now - fpsClock))
+            fpsCount   = 0
+            fpsClock   = now
+
+            -- Color FPS según rendimiento
+            if currentFPS >= 55 then
+                hudFPSLbl.TextColor3 = THEME.Green
+            elseif currentFPS >= 30 then
+                hudFPSLbl.TextColor3 = Color3.fromRGB(255, 200, 50)
+            else
+                hudFPSLbl.TextColor3 = THEME.Red
+            end
+            hudFPSLbl.Text = "FPS: " .. currentFPS
+
+            -- Ping
+            local pingMs = 0
+            pcall(function() pingMs = math.round(Players:GetNetworkPing() * 1000) end)
+
+            if pingMs <= 80 then
+                hudPingLbl.TextColor3 = THEME.Green
+            elseif pingMs <= 150 then
+                hudPingLbl.TextColor3 = Color3.fromRGB(255, 200, 50)
+            else
+                hudPingLbl.TextColor3 = THEME.Red
+            end
+            hudPingLbl.Text = "PING: " .. pingMs .. "ms"
+        end
+    end)
+end
+
 local function toggleMenu()
     if isAnimating then return end
     isAnimating = true
@@ -822,8 +1043,8 @@ local function startAutoSteal()
             if currentBillboard then currentBillboard:Destroy() end
             currentBillboard = Instance.new("BillboardGui")
             currentBillboard.Name = "AutoGrabESP"
-            currentBillboard.Size = UDim2.new(0, 160, 0, 45)
-            currentBillboard.StudsOffset = Vector3.new(0, 3.5, 0)
+            currentBillboard.Size = UDim2.new(0, 220, 0, 68)
+            currentBillboard.StudsOffset = Vector3.new(0, 4.5, 0)
             currentBillboard.AlwaysOnTop = true
             currentBillboard.Adornee = targetPart
             currentBillboard.Parent = CoreGui
@@ -831,44 +1052,82 @@ local function startAutoSteal()
             local bg = Instance.new("Frame", currentBillboard)
             bg.Size = UDim2.new(1, 0, 1, 0)
             bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-            bg.BackgroundTransparency = 0.45
+            bg.BackgroundTransparency = 0.35
             bg.BorderSizePixel = 0
-            Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 6)
+            Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 8)
             
             -- BORDE GIRATORIO (IGUAL QUE LOS OTROS ESP)
-            local stroke = Instance.new("UIStroke", bg)
-            stroke.Thickness = 2
-            stroke.Color = Color3.new(1, 1, 1)
-            stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            local grad = Instance.new("UIGradient", stroke)
+            local bbStroke = Instance.new("UIStroke", bg)
+            bbStroke.Thickness = 2
+            bbStroke.Color = Color3.new(1, 1, 1)
+            bbStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            local grad = Instance.new("UIGradient", bbStroke)
             grad.Color = espGradientColor
             grad.Rotation = 0
             table.insert(espGradients, grad)
 
+            -- IMAGEN CIRCULAR DEL BRAINROT
+            local imgHolder = Instance.new("Frame", bg)
+            imgHolder.Name       = "ImgHolder"
+            imgHolder.Size       = UDim2.new(0, 52, 0, 52)
+            imgHolder.Position   = UDim2.new(0, 6, 0.5, -26)
+            imgHolder.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
+            imgHolder.BorderSizePixel  = 0
+            Instance.new("UICorner", imgHolder).CornerRadius = UDim.new(1, 0)
+
+            local imgCircleStroke = Instance.new("UIStroke", imgHolder)
+            imgCircleStroke.Thickness = 2
+            imgCircleStroke.Color     = Color3.new(1, 1, 1)
+            imgCircleStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            local imgGrad = Instance.new("UIGradient", imgCircleStroke)
+            imgGrad.Color    = espGradientColor
+            imgGrad.Rotation = 0
+            table.insert(espGradients, imgGrad)
+
+            local brainrotImg = Instance.new("ImageLabel", imgHolder)
+            brainrotImg.Name               = "BrainrotImg"
+            brainrotImg.Size               = UDim2.new(1, 0, 1, 0)
+            brainrotImg.BackgroundTransparency = 1
+            brainrotImg.Image              = ""
+            brainrotImg.ScaleType          = Enum.ScaleType.Fit
+            Instance.new("UICorner", brainrotImg).CornerRadius = UDim.new(1, 0)
+
             local nameLbl = Instance.new("TextLabel", bg)
             nameLbl.Name = "PetName"
-            nameLbl.Size = UDim2.new(1, 0, 0.5, 0)
-            nameLbl.Position = UDim2.new(0, 0, 0, 2)
+            nameLbl.Size = UDim2.new(1, -66, 0, 30)
+            nameLbl.Position = UDim2.new(0, 62, 0, 4)
             nameLbl.BackgroundTransparency = 1
             nameLbl.Font = Enum.Font.GothamBlack
             nameLbl.TextSize = 13
             nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+            nameLbl.TextXAlignment = Enum.TextXAlignment.Left
             
             local valLbl = Instance.new("TextLabel", bg)
             valLbl.Name = "PetVal"
-            valLbl.Size = UDim2.new(1, 0, 0.5, 0)
-            valLbl.Position = UDim2.new(0, 0, 0.5, -2)
+            valLbl.Size = UDim2.new(1, -66, 0, 26)
+            valLbl.Position = UDim2.new(0, 62, 0, 36)
             valLbl.BackgroundTransparency = 1
             valLbl.Font = Enum.Font.GothamBold
             valLbl.TextSize = 12
             valLbl.TextColor3 = THEME.Primary
+            valLbl.TextXAlignment = Enum.TextXAlignment.Left
         end
 
         if currentBillboard then
             local bg = currentBillboard:FindFirstChildOfClass("Frame")
             if bg then
                 bg.PetName.Text = target.name
-                bg.PetVal.Text = target.genText
+                bg.PetVal.Text  = target.genText
+                -- Actualizar imagen circular del brainrot
+                local imgHolder = bg:FindFirstChild("ImgHolder")
+                if imgHolder then
+                    local imgLbl = imgHolder:FindFirstChild("BrainrotImg")
+                    if imgLbl then
+                        fetchBrainrotImage(target.name, function(asset)
+                            if imgLbl and imgLbl.Parent then imgLbl.Image = asset end
+                        end)
+                    end
+                end
             end
         end
     end
@@ -963,7 +1222,7 @@ local function startAutoSteal()
     UIListLayout.Padding = UDim.new(0, 5)
     UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 
-    MakeDraggable(asMain)
+    MakeDraggable(asMain, nil, "pos_autoSteal")
 
     local function formatMoney(val)
         local success, result = pcall(function() return NumberUtils:ToString(val) end)
@@ -1019,26 +1278,60 @@ local function startAutoSteal()
             local isTarget = (pet.uid == currentTargetUid)
             
             local ItemBtn = Instance.new("TextButton", ListScroll)
-            ItemBtn.Size = UDim2.new(1, -8, 0, 28)
+            ItemBtn.Size = UDim2.new(1, -8, 0, 38)
             ItemBtn.BackgroundColor3 = isTarget and THEME.DarkBlue or THEME.Frame
             ItemBtn.BorderSizePixel = 0; ItemBtn.Text = ""; ItemBtn.AutoButtonColor = false
-            corner(ItemBtn, 4)
+            corner(ItemBtn, 6)
             
             ItemBtn.MouseButton1Click:Connect(function() manualTargetUid = pet.uid end)
             
             if isTarget then
                 local Stroke = Instance.new("UIStroke", ItemBtn)
-                Stroke.Color = THEME.Primary; Stroke.Thickness = 1
+                Stroke.Color = THEME.Primary; Stroke.Thickness = 1.5
+            end
+
+            -- IMAGEN CIRCULAR DEL BRAINROT EN LA LISTA
+            local petImgHolder = Instance.new("Frame", ItemBtn)
+            petImgHolder.Name              = "PetImgHolder"
+            petImgHolder.Size              = UDim2.new(0, 30, 0, 30)
+            petImgHolder.Position          = UDim2.new(0, 5, 0.5, -15)
+            petImgHolder.BackgroundColor3  = Color3.fromRGB(10, 15, 30)
+            petImgHolder.BorderSizePixel   = 0
+            Instance.new("UICorner", petImgHolder).CornerRadius = UDim.new(1, 0)
+
+            local petImgStroke = Instance.new("UIStroke", petImgHolder)
+            petImgStroke.Thickness = 1.5
+            petImgStroke.Color     = Color3.new(1, 1, 1)
+            petImgStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            local petImgGrad = Instance.new("UIGradient", petImgStroke)
+            petImgGrad.Color    = espGradientColor
+            petImgGrad.Rotation = 0
+            table.insert(espGradients, petImgGrad)
+
+            local petImgLbl = Instance.new("ImageLabel", petImgHolder)
+            petImgLbl.Name                  = "PetImg"
+            petImgLbl.Size                  = UDim2.new(1, 0, 1, 0)
+            petImgLbl.BackgroundTransparency = 1
+            petImgLbl.Image                 = ""
+            petImgLbl.ScaleType             = Enum.ScaleType.Fit
+            Instance.new("UICorner", petImgLbl).CornerRadius = UDim.new(1, 0)
+
+            -- Cargar imagen en background (usa caché)
+            do
+                local capturedLbl = petImgLbl
+                fetchBrainrotImage(pet.name, function(asset)
+                    if capturedLbl and capturedLbl.Parent then capturedLbl.Image = asset end
+                end)
             end
             
             local RankLbl = Instance.new("TextLabel", ItemBtn)
-            RankLbl.Size = UDim2.new(0, 20, 1, 0); RankLbl.Position = UDim2.new(0, 5, 0, 0)
+            RankLbl.Size = UDim2.new(0, 20, 1, 0); RankLbl.Position = UDim2.new(0, 40, 0, 0)
             RankLbl.BackgroundTransparency = 1; RankLbl.Text = "#" .. i
             RankLbl.TextColor3 = isTarget and THEME.Primary or THEME.Dim
             RankLbl.Font = Enum.Font.GothamBlack; RankLbl.TextSize = 12
             
             local NameLbl = Instance.new("TextLabel", ItemBtn)
-            NameLbl.Size = UDim2.new(1, -95, 1, 0); NameLbl.Position = UDim2.new(0, 30, 0, 0)
+            NameLbl.Size = UDim2.new(1, -115, 1, 0); NameLbl.Position = UDim2.new(0, 64, 0, 0)
             NameLbl.BackgroundTransparency = 1; NameLbl.Text = pet.name
             NameLbl.TextColor3 = Color3.new(1,1,1); NameLbl.Font = Enum.Font.GothamMedium
             NameLbl.TextSize = 11; NameLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -1050,7 +1343,7 @@ local function startAutoSteal()
             ValLbl.TextColor3 = THEME.Neon1; ValLbl.Font = Enum.Font.GothamBold
             ValLbl.TextSize = 10; ValLbl.TextXAlignment = Enum.TextXAlignment.Right
         end
-        ListScroll.CanvasSize = UDim2.new(0, 0, 0, count * 33)
+        ListScroll.CanvasSize = UDim2.new(0, 0, 0, count * 43)
     end
 
     local function isTargetPrompt(prompt)
@@ -1180,22 +1473,33 @@ end
 -- ===========================
 -- VISUAL: ESP PLAYER
 -- ===========================
-local espPlayerConn
-local espPlayerFolder
+local _ESP = {
+    playerConn     = nil,
+    playerFolder   = nil,
+    baseConn       = nil,
+    stealersConn   = nil,
+    stealersActive = false,
+    mineConn       = nil,
+    mineFolder     = nil,
+    xrayConn       = nil,
+}
 
 local function startESPPlayer()
     local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-    if espPlayerFolder then espPlayerFolder:Destroy() end
-    espPlayerFolder = Instance.new("Folder")
-    espPlayerFolder.Name = "KYN_PlayerESP"
-    espPlayerFolder.Parent = PlayerGui
+    if _ESP.playerFolder then _ESP.playerFolder:Destroy() end
+    _ESP.playerFolder = Instance.new("Folder")
+    _ESP.playerFolder.Name = "KYN_PlayerESP"
+    _ESP.playerFolder.Parent = PlayerGui
 
     local function createOrUpdatePlayerESP(player)
         if player == LocalPlayer then return end
         if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return end
         local hrp = player.Character.HumanoidRootPart
 
-        local highlight = espPlayerFolder:FindFirstChild(player.Name .. "_Highlight")
+        -- Si ESP Stealers está activo y este jugador está robando, no tocar su billboard
+        if _ESP.stealersActive and player:GetAttribute("Stealing") then return end
+
+        local highlight = _ESP.playerFolder:FindFirstChild(player.Name .. "_Highlight")
         if not highlight then
             highlight = Instance.new("Highlight")
             highlight.Name = player.Name .. "_Highlight"
@@ -1203,7 +1507,7 @@ local function startESPPlayer()
             highlight.FillTransparency = 0.7
             highlight.OutlineColor = Color3.fromRGB(0, 0, 255)
             highlight.OutlineTransparency = 0
-            highlight.Parent = espPlayerFolder
+            highlight.Parent = _ESP.playerFolder
         end
         highlight.Adornee = player.Character
 
@@ -1225,15 +1529,15 @@ local function startESPPlayer()
         if textLabel then textLabel.Text = player.Name end
     end
 
-    espPlayerConn = RunService.Heartbeat:Connect(function()
+    _ESP.playerConn = RunService.Heartbeat:Connect(function()
         for _, player in pairs(Players:GetPlayers()) do
             pcall(function() createOrUpdatePlayerESP(player) end)
         end
     end)
 
     Players.PlayerRemoving:Connect(function(player)
-        if not espPlayerFolder then return end
-        local hl = espPlayerFolder:FindFirstChild(player.Name .. "_Highlight")
+        if not _ESP.playerFolder then return end
+        local hl = _ESP.playerFolder:FindFirstChild(player.Name .. "_Highlight")
         if hl then hl:Destroy() end
         if player.Character then
             local hrp = player.Character:FindFirstChild("HumanoidRootPart")
@@ -1246,14 +1550,14 @@ local function startESPPlayer()
 end
 
 local function stopESPPlayer()
-    if espPlayerConn then espPlayerConn:Disconnect(); espPlayerConn = nil end
-    if espPlayerFolder then espPlayerFolder:Destroy(); espPlayerFolder = nil end
+    if _ESP.playerConn then _ESP.playerConn:Disconnect(); _ESP.playerConn = nil end
+    if _ESP.playerFolder then _ESP.playerFolder:Destroy(); _ESP.playerFolder = nil end
 end
 
 -- ===========================
 -- VISUAL: ESP BASE TIME
 -- ===========================
-local espBaseConn
+_ESP.baseConn = nil
 
 local function startESPBase()
     local function getOwnBasePosition()
@@ -1318,7 +1622,7 @@ local function startESPBase()
         end
     end
 
-    espBaseConn = RunService.Heartbeat:Connect(function()
+    _ESP.baseConn = RunService.Heartbeat:Connect(function()
         local Plots = Workspace:FindFirstChild("Plots")
         if not Plots then return end
         local ownBasePos = getOwnBasePosition()
@@ -1329,7 +1633,7 @@ local function startESPBase()
 end
 
 local function stopESPBase()
-    if espBaseConn then espBaseConn:Disconnect(); espBaseConn = nil end
+    if _ESP.baseConn then _ESP.baseConn:Disconnect(); _ESP.baseConn = nil end
     local Plots = Workspace:FindFirstChild("Plots")
     if not Plots then return end
     for _, plot in pairs(Plots:GetChildren()) do
@@ -1347,113 +1651,219 @@ end
 -- ===========================
 -- VISUAL: ESP STEALERS
 -- ===========================
-local espStealersConn
-local espStealersActive = false
+_ESP.stealersConn      = nil
+_ESP.stealersActive    = false
+_ESP.stealerConns      = {}   -- [userId] = {conn1, conn2, charConn}
+
+-- Crea un billboard de dos líneas para el stealer (nombre + brainrot)
+local function makeStealerBillboard(rootPart, playerName, brainrotName)
+    local bb = Instance.new("BillboardGui")
+    bb.Name        = "KYN_StealerBB"
+    bb.Size        = UDim2.new(0, 190, 0, 56)
+    bb.StudsOffset = Vector3.new(0, 4.8, 0)
+    bb.AlwaysOnTop = true
+    bb.Adornee     = rootPart
+    bb.Parent      = rootPart
+
+    local bg = Instance.new("Frame", bb)
+    bg.Size                  = UDim2.new(1, 0, 1, 0)
+    bg.BackgroundColor3      = Color3.fromRGB(0, 0, 0)
+    bg.BackgroundTransparency = 0.38
+    bg.BorderSizePixel       = 0
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 8)
+
+    local bbStroke = Instance.new("UIStroke", bg)
+    bbStroke.Thickness      = 2
+    bbStroke.Color          = Color3.new(1, 1, 1)
+    bbStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    local bbGrad = Instance.new("UIGradient", bbStroke)
+    bbGrad.Color    = espStealerGradientColor
+    bbGrad.Rotation = 0
+    table.insert(espGradients, bbGrad)
+
+    -- Línea 1: Nombre del jugador
+    local nameLbl = Instance.new("TextLabel", bg)
+    nameLbl.Name               = "StealerName"
+    nameLbl.Size               = UDim2.new(1, -10, 0, 26)
+    nameLbl.Position           = UDim2.new(0, 5, 0, 2)
+    nameLbl.BackgroundTransparency = 1
+    nameLbl.Font               = Enum.Font.GothamBlack
+    nameLbl.TextSize            = 14
+    nameLbl.TextColor3          = Color3.fromRGB(255, 255, 255)
+    nameLbl.TextStrokeTransparency = 0.4
+    nameLbl.TextStrokeColor3   = Color3.new(0, 0, 0)
+    nameLbl.TextXAlignment     = Enum.TextXAlignment.Center
+    nameLbl.Text               = playerName
+    nameLbl.ZIndex             = 2
+
+    -- Línea 2: Nombre del brainrot
+    local brainLbl = Instance.new("TextLabel", bg)
+    brainLbl.Name               = "StealerBrainrot"
+    brainLbl.Size               = UDim2.new(1, -10, 0, 20)
+    brainLbl.Position           = UDim2.new(0, 5, 0, 30)
+    brainLbl.BackgroundTransparency = 1
+    brainLbl.Font               = Enum.Font.GothamBold
+    brainLbl.TextSize            = 12
+    brainLbl.TextColor3          = Color3.fromRGB(255, 200, 50)
+    brainLbl.TextStrokeTransparency = 0.5
+    brainLbl.TextStrokeColor3   = Color3.new(0, 0, 0)
+    brainLbl.TextXAlignment     = Enum.TextXAlignment.Center
+    brainLbl.TextTruncate       = Enum.TextTruncate.AtEnd
+    brainLbl.Text               = brainrotName ~= "" and ("🎒 " .. brainrotName) or "🎒 Robando..."
+    brainLbl.ZIndex             = 2
+
+    return bb
+end
+
+-- Oculta/muestra el billboard del ESP Player para un jugador
+local function setPlayerESPVisible(player, visible)
+    if not _ESP.stealersActive then return end
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local bb = hrp:FindFirstChild("KYN_PlayerBB")
+    if bb then bb.Enabled = visible end
+    -- También ocultamos el highlight del ESP Player
+    if _ESP.playerFolder then
+        local hl = _ESP.playerFolder:FindFirstChild(player.Name .. "_Highlight")
+        if hl then hl.Enabled = visible end
+    end
+end
+
+-- Aplica o actualiza el ESP del stealer en un jugador
+local function applyStealerESP(player)
+    if player == LocalPlayer then return end
+    local char = player.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart
+    if not root then return end
+
+    -- Ocultar ESP Player si está activo
+    setPlayerESPVisible(player, false)
+
+    -- Highlight naranja (solo crear si no existe)
+    if not char:FindFirstChild("KYN_StealerHighlight") then
+        local hl = Instance.new("Highlight")
+        hl.Name              = "KYN_StealerHighlight"
+        hl.FillColor         = Color3.fromRGB(255, 130, 0)
+        hl.OutlineColor      = Color3.fromRGB(255, 220, 0)
+        hl.FillTransparency  = 0.45
+        hl.DepthMode         = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Parent            = char
+    end
+
+    -- Billboard: actualizar si ya existe, crear si no
+    local brainrotName = tostring(player:GetAttribute("StealingIndex") or "")
+    local existingBB = root:FindFirstChild("KYN_StealerBB")
+    if existingBB then
+        local bg = existingBB:FindFirstChildOfClass("Frame")
+        if bg then
+            local bl = bg:FindFirstChild("StealerBrainrot")
+            if bl then bl.Text = brainrotName ~= "" and ("🎒 " .. brainrotName) or "🎒 Robando..." end
+        end
+    else
+        makeStealerBillboard(root, player.Name, brainrotName)
+    end
+end
+
+-- Limpia el ESP del stealer y restaura el ESP Player
+local function removeStealerESP(player)
+    if player == LocalPlayer then return end
+    local char = player.Character
+    if char then
+        local hl = char:FindFirstChild("KYN_StealerHighlight")
+        if hl then hl:Destroy() end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if root then
+            local bb = root:FindFirstChild("KYN_StealerBB")
+            if bb then bb:Destroy() end
+        end
+    end
+    -- Restaurar ESP Player si estaba activo
+    setPlayerESPVisible(player, true)
+end
+
+-- Registra escuchas de atributos para un jugador
+local function hookStealerPlayer(player)
+    if player == LocalPlayer then return end
+    if _ESP.stealerConns[player.UserId] then return end  -- ya conectado
+
+    local function onStealingChanged()
+        if not _ESP.stealersActive then return end
+        local isStealing = player:GetAttribute("Stealing")
+        if isStealing then
+            applyStealerESP(player)
+        else
+            removeStealerESP(player)
+        end
+    end
+
+    local conn1 = player:GetAttributeChangedSignal("Stealing"):Connect(onStealingChanged)
+    local conn2 = player:GetAttributeChangedSignal("StealingIndex"):Connect(function()
+        if _ESP.stealersActive and player:GetAttribute("Stealing") then
+            applyStealerESP(player)
+        end
+    end)
+    -- Reacción al respawn del personaje
+    local conn3 = player.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        if _ESP.stealersActive then onStealingChanged() end
+    end)
+
+    _ESP.stealerConns[player.UserId] = {conn1, conn2, conn3}
+
+    -- Estado inicial
+    onStealingChanged()
+end
+
+local function unhookStealerPlayer(player)
+    local conns = _ESP.stealerConns[player.UserId]
+    if conns then
+        for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+        _ESP.stealerConns[player.UserId] = nil
+    end
+    removeStealerESP(player)
+end
 
 local function startESPStealers()
-    espStealersActive = true
+    _ESP.stealersActive = true
+    _ESP.stealerConns   = {}
 
-    local function getJugadoresRobando()
-        local ladrones = {}
-        local objetosRobados = CollectionService:GetTagged("ClientRenderBrainrot")
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player == LocalPlayer then continue end
-            local char = player.Character
-            if char then
-                for _, obj in pairs(objetosRobados) do
-                    if obj:IsDescendantOf(char) then
-                        ladrones[player] = true
-                        break
-                    end
-                    local isStolenAttr = obj:GetAttribute("__render_stolen")
-                    local root = char:FindFirstChild("HumanoidRootPart")
-                    if isStolenAttr == true and root and obj:IsA("BasePart") then
-                        if (obj.Position - root.Position).Magnitude < 7 then
-                            ladrones[player] = true
-                            break
-                        end
-                    end
-                end
-            end
-        end
-        return ladrones
+    -- Conectar todos los jugadores actuales
+    for _, player in ipairs(Players:GetPlayers()) do
+        hookStealerPlayer(player)
     end
 
-    local function aplicarESPStealer(character, player)
-        local highlight = Instance.new("Highlight")
-        highlight.Name = "KYN_StealerHighlight"
-        highlight.FillColor = Color3.fromRGB(255, 140, 0)
-        highlight.OutlineColor = Color3.fromRGB(255, 220, 0)
-        highlight.FillTransparency = 0.5
-        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        highlight.Parent = character
-
-        local rootPart = character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart
-        if rootPart and not rootPart:FindFirstChild("KYN_StealerBB") then
-            local bb, lbl = makeStyledBillboard(
-                rootPart,
-                UDim2.new(0, 160, 0, 36),
-                Vector3.new(0, 4.5, 0),
-                Color3.fromRGB(255, 180, 0),
-                "🎒 " .. player.Name,
-                espStealerGradientColor
-            )
-            bb.Name = "KYN_StealerBB"
-        end
-    end
-
-    espStealersConn = RunService.Heartbeat:Connect(function()
-        if not espStealersActive then return end
-        local jugadoresRobando = getJugadoresRobando()
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player == LocalPlayer then continue end
-            local char = player.Character
-            if char then
-                local tieneESP = char:FindFirstChild("KYN_StealerHighlight")
-                if jugadoresRobando[player] then
-                    if not tieneESP then aplicarESPStealer(char, player) end
-                else
-                    if tieneESP then tieneESP:Destroy() end
-                    local root = char:FindFirstChild("HumanoidRootPart")
-                    if root then
-                        local bb = root:FindFirstChild("KYN_StealerBB")
-                        if bb then bb:Destroy() end
-                    end
-                end
-            end
-        end
+    -- Nuevos jugadores
+    _ESP.stealersConn = Players.PlayerAdded:Connect(function(player)
+        if _ESP.stealersActive then hookStealerPlayer(player) end
     end)
 end
 
 local function stopESPStealers()
-    espStealersActive = false
-    if espStealersConn then espStealersConn:Disconnect(); espStealersConn = nil end
+    _ESP.stealersActive = false
+    if _ESP.stealersConn then _ESP.stealersConn:Disconnect(); _ESP.stealersConn = nil end
+
+    -- Desconectar y limpiar todos
     for _, player in ipairs(Players:GetPlayers()) do
-        local char = player.Character
-        if char then
-            local hl = char:FindFirstChild("KYN_StealerHighlight")
-            if hl then hl:Destroy() end
-            local root = char:FindFirstChild("HumanoidRootPart")
-            if root then
-                local bb = root:FindFirstChild("KYN_StealerBB")
-                if bb then bb:Destroy() end
-            end
-        end
+        unhookStealerPlayer(player)
     end
+    _ESP.stealerConns = {}
 end
 
 -- ===========================
 -- VISUAL: ESP MINE
 -- ===========================
-local espMineConn
-local espMineFolder
+_ESP.mineConn = nil
+_ESP.mineFolder = nil
 
 local function startESPMine()
-    if espMineFolder then espMineFolder:Destroy() end
-    espMineFolder = Instance.new("Folder", CoreGui)
-    espMineFolder.Name = "KYN_MineESP"
+    if _ESP.mineFolder then _ESP.mineFolder:Destroy() end
+    _ESP.mineFolder = Instance.new("Folder", CoreGui)
+    _ESP.mineFolder.Name = "KYN_MineESP"
 
-    espMineConn = RunService.Heartbeat:Connect(function()
+    _ESP.mineConn = RunService.Heartbeat:Connect(function()
         local toolsAdds = Workspace:FindFirstChild("ToolsAdds")
         if not toolsAdds then return end
         
@@ -1484,8 +1894,8 @@ local function startESPMine()
 end
 
 local function stopESPMine()
-    if espMineConn then espMineConn:Disconnect() espMineConn = nil end
-    if espMineFolder then espMineFolder:Destroy() espMineFolder = nil end
+    if _ESP.mineConn then _ESP.mineConn:Disconnect() _ESP.mineConn = nil end
+    if _ESP.mineFolder then _ESP.mineFolder:Destroy() _ESP.mineFolder = nil end
     local toolsAdds = Workspace:FindFirstChild("ToolsAdds")
     if toolsAdds then
         for _, obj in ipairs(toolsAdds:GetChildren()) do
@@ -1505,11 +1915,11 @@ end
 -- ===========================
 -- VISUAL: X-RAY BASE
 -- ===========================
-local xrayConn
+_ESP.xrayConn = nil
 
 local function startXRay()
-    if xrayConn then xrayConn:Disconnect(); xrayConn = nil end
-    xrayConn = RunService.Heartbeat:Connect(function()
+    if _ESP.xrayConn then _ESP.xrayConn:Disconnect(); _ESP.xrayConn = nil end
+    _ESP.xrayConn = RunService.Heartbeat:Connect(function()
         local Plots = Workspace:FindFirstChild("Plots")
         if not Plots then return end
         for _, Plot in ipairs(Plots:GetChildren()) do
@@ -1525,7 +1935,7 @@ local function startXRay()
 end
 
 local function stopXRay()
-    if xrayConn then xrayConn:Disconnect(); xrayConn = nil end
+    if _ESP.xrayConn then _ESP.xrayConn:Disconnect(); _ESP.xrayConn = nil end
     local Plots = Workspace:FindFirstChild("Plots")
     if not Plots then return end
     for _, Plot in ipairs(Plots:GetChildren()) do
@@ -1542,31 +1952,65 @@ end
 -- ===========================
 -- MISC: INFINITE JUMP (ANTI-CHEAT SAFE)
 -- ===========================
-local infiniteJumpConn
-local infiniteJumpEnabled = false
-
+-- ===========================
+-- MISC: INFINITE JUMP
+-- ===========================
+local IJ = {
+    Enabled    = false,
+    isJumping  = false,
+    JumpPower  = {min = 45, max = 52},
+    Cooldown   = {min = 0.05, max = 0.15},
+    ClampFall  = -80,
+    jumpConn   = nil,
+    fallConn   = nil,
+    charConn   = nil,
+    character  = nil,
+}
 local function startInfiniteJump()
-    infiniteJumpEnabled = true
-    infiniteJumpConn = UIS.JumpRequest:Connect(function()
-        if not infiniteJumpEnabled then return end
-        local char = LocalPlayer.Character
-        if not char then return end
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        local hrp = char:FindFirstChild("HumanoidRootPart")
+    IJ.Enabled   = true
+    IJ.isJumping = false
+    IJ.character  = LocalPlayer.Character
+
+    -- Actualizar referencia al respawnear
+    if IJ.charConn then IJ.charConn:Disconnect() end
+    IJ.charConn = LocalPlayer.CharacterAdded:Connect(function(char)
+        IJ.character = char
+    end)
+
+    -- Limitador de caída suave
+    if IJ.fallConn then IJ.fallConn:Disconnect() end
+    IJ.fallConn = RunService.Heartbeat:Connect(function()
+        if not IJ.Enabled or not IJ.character then return end
+        local hrp = IJ.character:FindFirstChild("HumanoidRootPart")
+        if hrp and hrp.Velocity.Y < IJ.ClampFall then
+            hrp.Velocity = Vector3.new(hrp.Velocity.X, IJ.ClampFall, hrp.Velocity.Z)
+        end
+    end)
+
+    -- Salto infinito humanizado via JumpRequest
+    if IJ.jumpConn then IJ.jumpConn:Disconnect() end
+    IJ.jumpConn = UIS.JumpRequest:Connect(function()
+        if not IJ.Enabled or IJ.isJumping or not IJ.character then return end
+        local humanoid = IJ.character:FindFirstChildOfClass("Humanoid")
+        local hrp      = IJ.character:FindFirstChild("HumanoidRootPart")
         if humanoid and hrp then
-            local randomForce = math.random(45, 52)
-            hrp.AssemblyLinearVelocity = Vector3.new(
-                hrp.AssemblyLinearVelocity.X,
-                randomForce,
-                hrp.AssemblyLinearVelocity.Z
-            )
+            IJ.isJumping = true
+            local randomForce = math.random(IJ.JumpPower.min, IJ.JumpPower.max)
+            hrp.Velocity = Vector3.new(hrp.Velocity.X, randomForce, hrp.Velocity.Z)
+            -- Delay aleatorio para simular comportamiento humano
+            task.wait(math.random(IJ.Cooldown.min * 100, IJ.Cooldown.max * 100) / 100)
+            IJ.isJumping = false
         end
     end)
 end
 
 local function stopInfiniteJump()
-    infiniteJumpEnabled = false
-    if infiniteJumpConn then infiniteJumpConn:Disconnect(); infiniteJumpConn = nil end
+    IJ.Enabled   = false
+    IJ.isJumping = false
+    if IJ.jumpConn  then IJ.jumpConn:Disconnect();  IJ.jumpConn  = nil end
+    if IJ.fallConn  then IJ.fallConn:Disconnect();  IJ.fallConn  = nil end
+    if IJ.charConn  then IJ.charConn:Disconnect();  IJ.charConn  = nil end
+    IJ.character = nil
 end
 
 -- ===========================
@@ -2326,12 +2770,16 @@ end
 -- ============================================================
 -- // FLOAT BUTTON LOGIC (ANTI-CHEAT SAFE + 9 STUDS LIMIT)
 -- ============================================================
-local floatBtnFrame = nil
-local floating = false
-local floatBodyVel = nil
+local floatBtnFrame   = nil
+local floating        = false
+local floatBodyVel    = nil
 local floatRenderConn = nil
-local floatStartY = 0
-local floatPlat = nil
+local floatTargetY    = nil
+local floatPlat       = nil
+
+local FLOAT_STUDS  = 9
+local FLOAT_SPEED  = 6      -- Subida lenta (era 18)
+local FLOAT_MARGIN = 0.15
 
 local function toggleFloatButton(state)
     if state then
@@ -2354,7 +2802,7 @@ local function toggleFloatButton(state)
             local fStroke = stroke(fBtn, Color3.new(1, 1, 1), 3)
             local fGrad = Instance.new("UIGradient", fStroke)
             fGrad.Color = btnGradient.Color
-            
+
             task.spawn(function()
                 while floatBtnFrame and floatBtnFrame.Parent do
                     fGrad.Rotation = (fGrad.Rotation + 2) % 360
@@ -2362,87 +2810,111 @@ local function toggleFloatButton(state)
                 end
             end)
 
-            MakeDraggable(floatBtnFrame, fBtn)
+            -- Drag con guardado de posición
+            MakeDraggable(floatBtnFrame, fBtn, "pos_floatBtn")
 
             fBtn.Activated:Connect(function()
                 local char = LocalPlayer.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+                local hum  = char and char:FindFirstChildOfClass("Humanoid")
                 if not hrp or not hum then return end
 
                 floating = not floating
-                
+
                 if floating then
-                    fBtn.Text = "Float: ON"
+                    fBtn.Text       = "Float ☁"
                     fBtn.TextColor3 = THEME.Green
-                    
-                    floatStartY = hrp.Position.Y
-                    
-                    floatBodyVel = Instance.new("BodyVelocity")
-                    floatBodyVel.Name = "FloatVelocity"
+
+                    -- Altura objetivo fija desde el punto de activación
+                    floatTargetY = hrp.Position.Y + FLOAT_STUDS
+
+                    floatBodyVel          = Instance.new("BodyVelocity")
+                    floatBodyVel.Name     = "FloatVelocity"
                     floatBodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                    floatBodyVel.Velocity = Vector3.new(0, 20, 0)
-                    floatBodyVel.Parent = hrp
-                    
+                    floatBodyVel.Velocity = Vector3.new(0, FLOAT_SPEED, 0)
+                    floatBodyVel.Parent   = hrp
+
                     hum:ChangeState(Enum.HumanoidStateType.Physics)
-                    
-                    -- Plataforma invisible local para engañar al Anti-Cheat (FloorMaterial)
-                    floatPlat = Instance.new("Part")
-                    floatPlat.Size = Vector3.new(6, 1, 6)
-                    floatPlat.Transparency = 1
-                    floatPlat.Anchored = true
-                    floatPlat.CanCollide = true
-                    floatPlat.Parent = Workspace
-                    
+
+                    -- Plataforma VISIBLE bajo los pies
+                    floatPlat              = Instance.new("Part")
+                    floatPlat.Name         = "KYN_FloatPlat"
+                    floatPlat.Size         = Vector3.new(5, 0.4, 5)
+                    floatPlat.Transparency = 0.35
+                    floatPlat.Color        = THEME.Primary
+                    floatPlat.Material     = Enum.Material.Neon
+                    floatPlat.Anchored     = true
+                    floatPlat.CanCollide   = true
+                    floatPlat.CastShadow   = false
+                    floatPlat.Parent       = Workspace
+
                     if not floatRenderConn then
                         floatRenderConn = RunService.RenderStepped:Connect(function()
-                            if floating and floatBodyVel and floatBodyVel.Parent then
-                                local moveDir = hum.MoveDirection
-                                local currentY = hrp.Position.Y
-                                
-                                local yVel = 0
-                                if currentY < floatStartY + 9 then
-                                    yVel = 20 -- Subiendo
-                                elseif currentY > floatStartY + 9.5 then
-                                    yVel = -5 -- Corrección suave si se pasa
-                                else
-                                    yVel = 0 -- Mantener altura
-                                end
-                                
-                                floatBodyVel.Velocity = (moveDir * 50) + Vector3.new(0, yVel, 0)
-                                hrp.RotVelocity = Vector3.zero
-                                
-                                if floatPlat then
-                                    floatPlat.CFrame = hrp.CFrame - Vector3.new(0, 3.2, 0)
-                                end
+                            if not floating or not floatBodyVel or not floatBodyVel.Parent then return end
+
+                            local currentY = hrp.Position.Y
+                            local moveDir  = hum.MoveDirection
+                            local diff     = floatTargetY - currentY
+
+                            -- Control Y suave y LENTO (proporcional al error)
+                            local yVel
+                            if math.abs(diff) > FLOAT_MARGIN then
+                                yVel = math.clamp(diff * 3, -FLOAT_SPEED, FLOAT_SPEED)
+                            else
+                                yVel = 0
+                            end
+
+                            local walkSpd = hum.WalkSpeed > 0 and hum.WalkSpeed or 16
+                            floatBodyVel.Velocity = (moveDir * walkSpd) + Vector3.new(0, yVel, 0)
+                            hrp.RotVelocity       = Vector3.zero
+
+                            if floatPlat then
+                                floatPlat.CFrame = hrp.CFrame - Vector3.new(0, 3.2, 0)
                             end
                         end)
                     end
+
+                    -- ⏱ AUTO-DESACTIVAR DESPUÉS DE 7 SEGUNDOS
+                    task.delay(7, function()
+                        if not floating then return end
+                        floating     = false
+                        floatTargetY = nil
+                        fBtn.Text       = "Float"
+                        fBtn.TextColor3 = THEME.Primary
+                        if floatBodyVel then floatBodyVel:Destroy(); floatBodyVel = nil end
+                        if floatPlat    then floatPlat:Destroy();    floatPlat    = nil end
+                        if floatRenderConn then floatRenderConn:Disconnect(); floatRenderConn = nil end
+                        pcall(function()
+                            local c = LocalPlayer.Character
+                            local h = c and c:FindFirstChildOfClass("Humanoid")
+                            if h then h:ChangeState(Enum.HumanoidStateType.Freefall) end
+                        end)
+                        KYNNotify("Float", "⏱ 7 segundos — Float desactivado", "☁", THEME.Dim, 2)
+                    end)
                 else
-                    fBtn.Text = "Float: OFF"
-                    fBtn.TextColor3 = THEME.Red
-                    
-                    if floatBodyVel then floatBodyVel:Destroy() floatBodyVel = nil end
-                    if floatPlat then
-                        game.Debris:AddItem(floatPlat, 5)
-                        floatPlat = nil
-                    end
-                    
-                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                    fBtn.Text       = "Float"
+                    fBtn.TextColor3 = THEME.Primary
+                    floatTargetY    = nil
+
+                    if floatBodyVel then floatBodyVel:Destroy(); floatBodyVel = nil end
+                    if floatPlat    then floatPlat:Destroy();    floatPlat    = nil end
+
+                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
                 end
             end)
         end
         floatBtnFrame.Visible = true
     else
         if floatBtnFrame then floatBtnFrame.Visible = false end
-        floating = false
-        if floatBodyVel then floatBodyVel:Destroy() floatBodyVel = nil end
-        if floatPlat then floatPlat:Destroy() floatPlat = nil end
-        if floatRenderConn then floatRenderConn:Disconnect() floatRenderConn = nil end
+        floating     = false
+        floatTargetY = nil
+        if floatBodyVel    then floatBodyVel:Destroy();       floatBodyVel    = nil end
+        if floatPlat       then floatPlat:Destroy();          floatPlat       = nil end
+        if floatRenderConn then floatRenderConn:Disconnect(); floatRenderConn = nil end
         if floatBtnFrame then
             local fBtn = floatBtnFrame:FindFirstChildOfClass("TextButton")
             if fBtn then
-                fBtn.Text = "Float"
+                fBtn.Text       = "Float"
                 fBtn.TextColor3 = THEME.Primary
             end
         end
@@ -2450,8 +2922,261 @@ local function toggleFloatButton(state)
 end
 
 -- ============================================================
--- // REGISTRO DE TODOS LOS TOGGLES
+-- // STEAL SPEED
 -- ============================================================
+local ssEnabled   = false
+local stealSpeed  = 25
+local SS_MIN      = 5
+local SS_MAX      = 100
+local ssGui       = nil
+local ssHeartbeat = nil
+
+local function startStealSpeed()
+    ssEnabled = true
+    if ssHeartbeat then ssHeartbeat:Disconnect() end
+    ssHeartbeat = RunService.Heartbeat:Connect(function()
+        if not ssEnabled then return end
+        if LocalPlayer:GetAttribute("Stealing") ~= true then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hum and hrp and hum.Health > 0 then
+            local md = hum.MoveDirection
+            if md.Magnitude > 0 then
+                hrp.AssemblyLinearVelocity = Vector3.new(
+                    md.X * stealSpeed,
+                    hrp.AssemblyLinearVelocity.Y,
+                    md.Z * stealSpeed
+                )
+            end
+        end
+    end)
+
+    -- Crear GUI si no existe
+    if ssGui and ssGui.Parent then return end
+
+    ssGui = Instance.new("ScreenGui", CoreGui)
+    ssGui.Name        = "KYN_StealSpeedGUI"
+    ssGui.ResetOnSpawn = false
+
+    local ssFrame = Instance.new("Frame", ssGui)
+    ssFrame.Size              = UDim2.new(0, 260, 0, 175)
+    ssFrame.Position          = UDim2.new(0.5, -130, 0.5, 100)
+    ssFrame.BackgroundColor3  = THEME.BG
+    ssFrame.BorderSizePixel   = 0
+    ssFrame.Active            = true
+    corner(ssFrame, 12)
+
+    local ssStroke = stroke(ssFrame, Color3.new(1,1,1), 3)
+    local ssGrad   = Instance.new("UIGradient", ssStroke)
+    ssGrad.Color   = ColorSequence.new{
+        ColorSequenceKeypoint.new(0,    THEME.Secondary),
+        ColorSequenceKeypoint.new(0.25, THEME.DarkBlue),
+        ColorSequenceKeypoint.new(0.5,  THEME.Primary),
+        ColorSequenceKeypoint.new(0.75, THEME.DarkBlue),
+        ColorSequenceKeypoint.new(1,    THEME.Secondary),
+    }
+    task.spawn(function()
+        while ssGui and ssGui.Parent do
+            ssGrad.Rotation = (ssGrad.Rotation + 2) % 360
+            RunService.RenderStepped:Wait()
+        end
+    end)
+
+    -- Header
+    local ssHeader = Instance.new("Frame", ssFrame)
+    ssHeader.Size             = UDim2.new(1, 0, 0, 38)
+    ssHeader.BackgroundColor3 = THEME.Frame
+    ssHeader.BorderSizePixel  = 0
+    ssHeader.Active           = true
+    corner(ssHeader, 12)
+    local ssHeaderPatch = Instance.new("Frame", ssHeader)
+    ssHeaderPatch.Size            = UDim2.new(1, 0, 0, 10)
+    ssHeaderPatch.Position        = UDim2.new(0, 0, 1, -10)
+    ssHeaderPatch.BackgroundColor3 = THEME.Frame
+    ssHeaderPatch.BorderSizePixel = 0
+
+    local ssTitle = Instance.new("TextLabel", ssHeader)
+    ssTitle.Size                = UDim2.new(1, -12, 1, 0)
+    ssTitle.Position            = UDim2.new(0, 12, 0, 0)
+    ssTitle.BackgroundTransparency = 1
+    ssTitle.Text                = "⚡ Steal Speed"
+    ssTitle.Font                = Enum.Font.GothamBlack
+    ssTitle.TextSize            = 14
+    ssTitle.TextColor3          = THEME.Primary
+    ssTitle.TextXAlignment      = Enum.TextXAlignment.Left
+
+    MakeDraggable(ssFrame, ssHeader, "pos_stealSpeed")
+
+    -- Estado
+    local ssStatus = Instance.new("TextLabel", ssFrame)
+    ssStatus.Size               = UDim2.new(1, -16, 0, 18)
+    ssStatus.Position           = UDim2.new(0, 8, 0, 44)
+    ssStatus.BackgroundTransparency = 1
+    ssStatus.Text               = "● No estás robando"
+    ssStatus.TextColor3         = THEME.Dim
+    ssStatus.Font               = Enum.Font.GothamMedium
+    ssStatus.TextSize           = 11
+    ssStatus.TextXAlignment     = Enum.TextXAlignment.Left
+    pcall(function()
+        LocalPlayer:GetAttributeChangedSignal("Stealing"):Connect(function()
+            if LocalPlayer:GetAttribute("Stealing") == true then
+                ssStatus.Text      = "● ¡ROBANDO! (Speed Activo)"
+                ssStatus.TextColor3 = THEME.Green
+            else
+                ssStatus.Text      = "● No estás robando"
+                ssStatus.TextColor3 = THEME.Dim
+            end
+        end)
+    end)
+
+    -- Label velocidad
+    local ssSpeedLbl = Instance.new("TextLabel", ssFrame)
+    ssSpeedLbl.Size               = UDim2.new(0, 160, 0, 18)
+    ssSpeedLbl.Position           = UDim2.new(0, 8, 0, 66)
+    ssSpeedLbl.BackgroundTransparency = 1
+    ssSpeedLbl.Text               = "Velocidad: " .. stealSpeed
+    ssSpeedLbl.TextColor3         = THEME.Neon1
+    ssSpeedLbl.Font               = Enum.Font.GothamBold
+    ssSpeedLbl.TextSize           = 12
+    ssSpeedLbl.TextXAlignment     = Enum.TextXAlignment.Left
+
+    -- Campo de texto
+    local ssInput = Instance.new("TextBox", ssFrame)
+    ssInput.Size                = UDim2.new(0, 52, 0, 20)
+    ssInput.Position            = UDim2.new(1, -60, 0, 64)
+    ssInput.BackgroundColor3    = THEME.DarkBlue
+    ssInput.Text                = tostring(stealSpeed)
+    ssInput.TextColor3          = THEME.Primary
+    ssInput.Font                = Enum.Font.GothamBold
+    ssInput.TextSize            = 12
+    ssInput.PlaceholderText     = "val"
+    ssInput.ClearTextOnFocus    = false
+    corner(ssInput, 6)
+    stroke(ssInput, THEME.Primary, 1.2)
+
+    -- Slider track
+    local ssBg = Instance.new("Frame", ssFrame)
+    ssBg.Size             = UDim2.new(1, -16, 0, 6)
+    ssBg.Position         = UDim2.new(0, 8, 0, 94)
+    ssBg.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
+    ssBg.BorderSizePixel  = 0
+    corner(ssBg, 50)
+
+    local ssFill = Instance.new("Frame", ssBg)
+    local initPct = (stealSpeed - SS_MIN) / (SS_MAX - SS_MIN)
+    ssFill.Size             = UDim2.new(initPct, 0, 1, 0)
+    ssFill.BackgroundColor3 = THEME.Primary
+    ssFill.BorderSizePixel  = 0
+    corner(ssFill, 50)
+
+    local ssKnob = Instance.new("Frame", ssBg)
+    ssKnob.Size        = UDim2.new(0, 14, 0, 14)
+    ssKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+    ssKnob.Position    = UDim2.new(initPct, 0, 0.5, 0)
+    ssKnob.BackgroundColor3 = Color3.new(1,1,1)
+    ssKnob.BorderSizePixel  = 0
+    corner(ssKnob, 50)
+
+    local function applySpeed(v)
+        stealSpeed          = math.clamp(math.floor(v), SS_MIN, SS_MAX)
+        local pct           = (stealSpeed - SS_MIN) / (SS_MAX - SS_MIN)
+        ssFill.Size         = UDim2.new(pct, 0, 1, 0)
+        ssKnob.Position     = UDim2.new(pct, 0, 0.5, 0)
+        ssSpeedLbl.Text     = "Velocidad: " .. stealSpeed
+        ssInput.Text        = tostring(stealSpeed)
+        -- Guardar en config
+        kynConfig["stealSpeed"] = stealSpeed
+        saveKYNConfig()
+    end
+
+    -- Restaurar valor guardado
+    if kynConfig["stealSpeed"] then
+        applySpeed(kynConfig["stealSpeed"])
+    end
+
+    -- Slider drag
+    local ssDragging = false
+    local function updateSlider(input)
+        local pos = math.clamp(input.Position.X - ssBg.AbsolutePosition.X, 0, ssBg.AbsoluteSize.X)
+        applySpeed(SS_MIN + (pos / ssBg.AbsoluteSize.X) * (SS_MAX - SS_MIN))
+    end
+    ssBg.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+            ssDragging = true
+            updateSlider(inp)
+        end
+    end)
+    UIS.InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+            ssDragging = false
+        end
+    end)
+    UIS.InputChanged:Connect(function(inp)
+        if ssDragging and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
+            updateSlider(inp)
+        end
+    end)
+
+    -- TextBox confirmar con Enter
+    ssInput.FocusLost:Connect(function()
+        local n = tonumber(ssInput.Text)
+        if n then applySpeed(n) else ssInput.Text = tostring(stealSpeed) end
+    end)
+
+    -- Info min/max
+    local ssRange = Instance.new("TextLabel", ssFrame)
+    ssRange.Size               = UDim2.new(1, -16, 0, 14)
+    ssRange.Position           = UDim2.new(0, 8, 0, 104)
+    ssRange.BackgroundTransparency = 1
+    ssRange.Text               = SS_MIN .. "  ←  rango  →  " .. SS_MAX
+    ssRange.TextColor3         = THEME.Dim
+    ssRange.Font               = Enum.Font.Gotham
+    ssRange.TextSize           = 10
+    ssRange.TextXAlignment     = Enum.TextXAlignment.Center
+
+    -- Línea separadora
+    local ssDivider = Instance.new("Frame", ssFrame)
+    ssDivider.Size            = UDim2.new(0.9, 0, 0, 1)
+    ssDivider.Position        = UDim2.new(0.05, 0, 0, 124)
+    ssDivider.BackgroundColor3 = THEME.Primary
+    ssDivider.BackgroundTransparency = 0.6
+    ssDivider.BorderSizePixel = 0
+
+    -- Toggle ON/OFF interno de la GUI
+    local ssToggle = Instance.new("TextButton", ssFrame)
+    ssToggle.Size              = UDim2.new(1, -16, 0, 32)
+    ssToggle.Position          = UDim2.new(0, 8, 0, 132)
+    ssToggle.BackgroundColor3  = THEME.Green
+    ssToggle.Text              = "ACTIVADO"
+    ssToggle.TextColor3        = THEME.BG
+    ssToggle.Font              = Enum.Font.GothamBold
+    ssToggle.TextSize          = 13
+    ssToggle.AutoButtonColor   = false
+    corner(ssToggle, 8)
+
+    ssToggle.Activated:Connect(function()
+        ssEnabled = not ssEnabled
+        if ssEnabled then
+            tween(ssToggle, {BackgroundColor3 = THEME.Green}, 0.2)
+            ssToggle.Text      = "ACTIVADO"
+            ssToggle.TextColor3 = THEME.BG
+        else
+            tween(ssToggle, {BackgroundColor3 = THEME.Red}, 0.2)
+            ssToggle.Text      = "DESACTIVADO"
+            ssToggle.TextColor3 = Color3.new(1,1,1)
+        end
+    end)
+end
+
+local function stopStealSpeed()
+    ssEnabled = false
+    if ssHeartbeat then ssHeartbeat:Disconnect(); ssHeartbeat = nil end
+    if ssGui       then ssGui:Destroy();          ssGui       = nil end
+end
+
+
 
 local desyncGroup = {}  
 
@@ -2489,6 +3214,11 @@ end})
 _G.KYNAddToggle("Main", {Name = "Float Button", Callback = function(s)
     toggleFloatButton(s)
     KYNNotify("Float Button", s and "Botón mostrado ✔" or "Oculto", "☁", THEME.Primary, 1.8)
+end})
+
+_G.KYNAddToggle("Main", {Name = "Steal Speed", Callback = function(s)
+    if s then startStealSpeed() else stopStealSpeed() end
+    KYNNotify("Steal Speed", s and "GUI abierta ✔" or "Desactivado", "💨", THEME.Green, 1.8)
 end})
 
 _G.KYNAddToggle("Visual", {Name = "ESP Player", Callback = function(s)
