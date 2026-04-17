@@ -40,7 +40,7 @@ local function fetchBrainrotImage(name, callback)
         local ok, res = pcall(function()
             return request({
                 Url    = WIKI_API .. "?action=query&titles=" .. HttpService:UrlEncode(name)
-                       .. "&prop=pageimages&pithumbsize=128&format=json&origin=*",
+                       .. "&prop=pageimages&pithumbsize=256&format=json&origin=*",
                 Method = "GET"
             })
         end)
@@ -388,7 +388,7 @@ end
 -- ===========================
 -- SETUP PRINCIPAL
 -- ===========================
-local gui, toggleBtn, btnGradient, mainDragFrame, mainFrame, uiScale, mainGradient
+local gui, toggleBtn, btnGradient, mainDragFrame, mainFrame, uiScale, mainGradient, tabs
 do
 gui = Instance.new("ScreenGui")
 gui.Name = guiName
@@ -607,7 +607,7 @@ contentFrame.Size = UDim2.new(1, 0, 1, -100)
 contentFrame.BackgroundTransparency = 1
 contentFrame.ZIndex = 2
 
-local tabs, tabButtons, tabStrokes = {}, {}, {}
+tabs, tabButtons, tabStrokes = {}, {}, {}
 
 local function createTab(name)
     local tab = Instance.new("ScrollingFrame", contentFrame)
@@ -816,18 +816,10 @@ do
         ColorSequenceKeypoint.new(1,    THEME.Secondary),
     }
 
-    -- Indicador lateral de color (barra izquierda)
-    local hudBar = Instance.new("Frame", hudFrame)
-    hudBar.Size              = UDim2.new(0, 4, 0.65, 0)
-    hudBar.Position          = UDim2.new(0, 10, 0.175, 0)
-    hudBar.BackgroundColor3  = THEME.Primary
-    hudBar.BorderSizePixel   = 0
-    corner(hudBar, 50)
-
     -- Nombre del script (con degradado animado)
     local hudTitle = Instance.new("TextLabel", hudFrame)
     hudTitle.Size               = UDim2.new(0, 90, 1, 0)
-    hudTitle.Position           = UDim2.new(0, 20, 0, 0)
+    hudTitle.Position           = UDim2.new(0, 10, 0, 0)
     hudTitle.BackgroundTransparency = 1
     hudTitle.Text               = "⚡ KYN HUB"
     hudTitle.Font               = Enum.Font.GothamBlack
@@ -844,17 +836,10 @@ do
     }
     hudTitleGrad.Rotation = 0
 
-    -- Separador vertical
-    local hudSep = Instance.new("Frame", hudFrame)
-    hudSep.Size             = UDim2.new(0, 1, 0.5, 0)
-    hudSep.Position         = UDim2.new(0, 116, 0.25, 0)
-    hudSep.BackgroundColor3 = THEME.BorderOff
-    hudSep.BorderSizePixel  = 0
-
     -- FPS Label
     local hudFPSLbl = Instance.new("TextLabel", hudFrame)
     hudFPSLbl.Size               = UDim2.new(0, 85, 1, 0)
-    hudFPSLbl.Position           = UDim2.new(0, 124, 0, 0)
+    hudFPSLbl.Position           = UDim2.new(0, 106, 0, 0)
     hudFPSLbl.BackgroundTransparency = 1
     hudFPSLbl.Text               = "FPS: --"
     hudFPSLbl.Font               = Enum.Font.GothamBold
@@ -863,17 +848,17 @@ do
     hudFPSLbl.TextXAlignment     = Enum.TextXAlignment.Left
     hudFPSLbl.ZIndex             = 51
 
-    -- Separador vertical 2
-    local hudSep2 = Instance.new("Frame", hudFrame)
-    hudSep2.Size             = UDim2.new(0, 1, 0.5, 0)
-    hudSep2.Position         = UDim2.new(0, 213, 0.25, 0)
-    hudSep2.BackgroundColor3 = THEME.BorderOff
-    hudSep2.BorderSizePixel  = 0
+    -- Separador vertical entre FPS y Ping
+    local hudSep = Instance.new("Frame", hudFrame)
+    hudSep.Size             = UDim2.new(0, 1, 0.5, 0)
+    hudSep.Position         = UDim2.new(0, 196, 0.25, 0)
+    hudSep.BackgroundColor3 = THEME.BorderOff
+    hudSep.BorderSizePixel  = 0
 
     -- Ping Label
     local hudPingLbl = Instance.new("TextLabel", hudFrame)
     hudPingLbl.Size               = UDim2.new(0, 90, 1, 0)
-    hudPingLbl.Position           = UDim2.new(0, 220, 0, 0)
+    hudPingLbl.Position           = UDim2.new(0, 203, 0, 0)
     hudPingLbl.BackgroundTransparency = 1
     hudPingLbl.Text               = "PING: --"
     hudPingLbl.Font               = Enum.Font.GothamBold
@@ -915,7 +900,14 @@ do
 
             -- Ping
             local pingMs = 0
-            pcall(function() pingMs = math.round(Players:GetNetworkPing() * 1000) end)
+            pcall(function()
+                pingMs = math.floor(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue())
+            end)
+            if pingMs == 0 then
+                pcall(function()
+                    pingMs = math.round(Players:GetNetworkPing() * 1000)
+                end)
+            end
 
             if pingMs <= 80 then
                 hudPingLbl.TextColor3 = THEME.Green
@@ -961,12 +953,6 @@ end)
 UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == Enum.KeyCode.RightShift then toggleMenu() end
-    if input.KeyCode == Enum.KeyCode.F then
-        if not floatBtnFrame or not floatBtnFrame.Visible then
-            toggleFloatButton(true)
-        end
-        doFloatToggle()
-    end
 end)
 
 -- ============================================================
@@ -1056,8 +1042,10 @@ local function startAutoSteal()
             currentBillboard.Size = UDim2.new(0, 220, 0, 68)
             currentBillboard.StudsOffset = Vector3.new(0, 4.5, 0)
             currentBillboard.AlwaysOnTop = true
-            currentBillboard.Adornee = targetPart
-            currentBillboard.Parent = CoreGui
+currentBillboard.Adornee = targetPart
+            if not pcall(function() currentBillboard.Parent = CoreGui end) then
+                currentBillboard.Parent = LocalPlayer:WaitForChild("PlayerGui")
+            end
 
             local bg = Instance.new("Frame", currentBillboard)
             bg.Size = UDim2.new(1, 0, 1, 0)
@@ -1142,13 +1130,20 @@ local function startAutoSteal()
         end
     end
 
+-- Buscar primero en CoreGui o PlayerGui para limpiar interfaces repetidas
     local oldASG = CoreGui:FindFirstChild("KYN_AutoStealGUI")
+    if not oldASG then
+        pcall(function() oldASG = LocalPlayer.PlayerGui:FindFirstChild("KYN_AutoStealGUI") end)
+    end
     if oldASG then oldASG:Destroy() end
+
     autoStealGui = Instance.new("ScreenGui")
     autoStealGui.Name = "KYN_AutoStealGUI"
     autoStealGui.ResetOnSpawn = false
     autoStealGui.IgnoreGuiInset = true
     autoStealGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    
+    -- SOLUCIÓN PC: Enviar al CoreGui o PlayerGui en lugar de enviarlo a otro ScreenGui
     if not pcall(function() autoStealGui.Parent = CoreGui end) then
         autoStealGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     end
@@ -2784,99 +2779,53 @@ local function deactivateDesync()
 end
 
 -- ============================================================
--- // FLOAT BUTTON LOGIC (ANTI-CHEAT SAFE + 9 STUDS LIMIT)
+-- // FLOAT (PLATFORM-BASED, CUSTOM KEYBIND)
 -- ============================================================
 local floatBtnFrame   = nil
 local floating        = false
-local floatBodyVel    = nil
-local floatRenderConn = nil
-local floatTargetY    = nil
-local floatPlat       = nil
+local floatPlatform   = nil
+local floatLoopThread = nil
 
-local FLOAT_STUDS  = 9
-local FLOAT_SPEED  = 12     -- Subida moderada (era 6)
-local FLOAT_MARGIN = 0.15
+local floatKeybind = kynConfig["floatKeybind"] or "F"
+
+local function enableFloat()
+    if floatPlatform then floatPlatform:Destroy() end
+    floatPlatform = Instance.new("Part")
+    floatPlatform.Name         = "KYN_FloatPlat"
+    floatPlatform.Size         = Vector3.new(6, 1, 6)
+    floatPlatform.Anchored     = true
+    floatPlatform.CanCollide   = true
+    floatPlatform.Transparency = 1
+    floatPlatform.Parent       = Workspace
+
+    if floatLoopThread then task.cancel(floatLoopThread) end
+    floatLoopThread = task.spawn(function()
+        while floating and floatPlatform do
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                floatPlatform.CFrame = hrp.CFrame - Vector3.new(0, 3, 0)
+            end
+            task.wait(0.05)
+        end
+    end)
+end
+
+local function disableFloat()
+    if floatPlatform then floatPlatform:Destroy(); floatPlatform = nil end
+    if floatLoopThread then task.cancel(floatLoopThread); floatLoopThread = nil end
+end
 
 local function doFloatToggle()
-    local char = LocalPlayer.Character
-    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
-    local hum  = char and char:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum then return end
-
     floating = not floating
     local fBtn = floatBtnFrame and floatBtnFrame:FindFirstChildOfClass("TextButton")
 
     if floating then
         if fBtn then fBtn.Text = "Float ☁"; fBtn.TextColor3 = THEME.Green end
-
-        floatTargetY = hrp.Position.Y + FLOAT_STUDS
-
-        floatBodyVel          = Instance.new("BodyVelocity")
-        floatBodyVel.Name     = "FloatVelocity"
-        floatBodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-        floatBodyVel.Velocity = Vector3.new(0, FLOAT_SPEED, 0)
-        floatBodyVel.Parent   = hrp
-
-        hum:ChangeState(Enum.HumanoidStateType.Physics)
-
-        floatPlat              = Instance.new("Part")
-        floatPlat.Name         = "KYN_FloatPlat"
-        floatPlat.Size         = Vector3.new(5, 0.4, 5)
-        floatPlat.Transparency = 0.35
-        floatPlat.Color        = THEME.Primary
-        floatPlat.Material     = Enum.Material.Neon
-        floatPlat.Anchored     = true
-        floatPlat.CanCollide   = true
-        floatPlat.CastShadow   = false
-        floatPlat.Parent       = Workspace
-
-        if not floatRenderConn then
-            floatRenderConn = RunService.RenderStepped:Connect(function()
-                if not floating or not floatBodyVel or not floatBodyVel.Parent then return end
-                local c2 = LocalPlayer.Character
-                local hrp2 = c2 and c2:FindFirstChild("HumanoidRootPart")
-                local hum2 = c2 and c2:FindFirstChildOfClass("Humanoid")
-                if not hrp2 or not hum2 then return end
-                local currentY = hrp2.Position.Y
-                local moveDir  = hum2.MoveDirection
-                local diff     = floatTargetY - currentY
-                local yVel
-                if math.abs(diff) > FLOAT_MARGIN then
-                    yVel = math.clamp(diff * 5, -FLOAT_SPEED, FLOAT_SPEED)
-                else
-                    yVel = 0
-                end
-                local walkSpd = hum2.WalkSpeed > 0 and hum2.WalkSpeed or 16
-                floatBodyVel.Velocity = (moveDir * walkSpd) + Vector3.new(0, yVel, 0)
-                hrp2.RotVelocity = Vector3.zero
-                if floatPlat then
-                    floatPlat.CFrame = hrp2.CFrame - Vector3.new(0, 3.2, 0)
-                end
-            end)
-        end
-
-        task.delay(7, function()
-            if not floating then return end
-            floating     = false
-            floatTargetY = nil
-            local fb2 = floatBtnFrame and floatBtnFrame:FindFirstChildOfClass("TextButton")
-            if fb2 then fb2.Text = "Float"; fb2.TextColor3 = THEME.Primary end
-            if floatBodyVel then floatBodyVel:Destroy(); floatBodyVel = nil end
-            if floatPlat    then floatPlat:Destroy();    floatPlat    = nil end
-            if floatRenderConn then floatRenderConn:Disconnect(); floatRenderConn = nil end
-            pcall(function()
-                local c3 = LocalPlayer.Character
-                local h3 = c3 and c3:FindFirstChildOfClass("Humanoid")
-                if h3 then h3:ChangeState(Enum.HumanoidStateType.Freefall) end
-            end)
-            KYNNotify("Float", "⏱ 7 segundos — Float desactivado", "☁", THEME.Dim, 2)
-        end)
+        enableFloat()
     else
         if fBtn then fBtn.Text = "Float"; fBtn.TextColor3 = THEME.Primary end
-        floatTargetY = nil
-        if floatBodyVel then floatBodyVel:Destroy(); floatBodyVel = nil end
-        if floatPlat    then floatPlat:Destroy();    floatPlat    = nil end
-        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        disableFloat()
     end
 end
 
@@ -2917,11 +2866,8 @@ local function toggleFloatButton(state)
         floatBtnFrame.Visible = true
     else
         if floatBtnFrame then floatBtnFrame.Visible = false end
-        floating     = false
-        floatTargetY = nil
-        if floatBodyVel    then floatBodyVel:Destroy();       floatBodyVel    = nil end
-        if floatPlat       then floatPlat:Destroy();          floatPlat       = nil end
-        if floatRenderConn then floatRenderConn:Disconnect(); floatRenderConn = nil end
+        floating = false
+        disableFloat()
         if floatBtnFrame then
             local fBtn = floatBtnFrame:FindFirstChildOfClass("TextButton")
             if fBtn then
@@ -2931,6 +2877,13 @@ local function toggleFloatButton(state)
         end
     end
 end
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    if floating then
+        task.wait(0.5)
+        enableFloat()
+    end
+end)
 
 -- ============================================================
 -- // STEAL SPEED
@@ -3231,6 +3184,94 @@ _G.KYNAddToggle("Main", {Name = "Float Button", Callback = function(s)
     toggleFloatButton(s)
     KYNNotify("Float Button", s and "Botón mostrado ✔" or "Oculto", "☁", THEME.Primary, 1.8)
 end})
+
+do
+    local floatTab = tabs["Main"]
+    if floatTab then
+        local kbFrame = Instance.new("Frame", floatTab)
+        kbFrame.Size = UDim2.new(1, 0, 0, 28)
+        kbFrame.BackgroundColor3 = THEME.Frame
+        kbFrame.BackgroundTransparency = 0.5
+        kbFrame.BorderSizePixel = 0
+        corner(kbFrame, 6)
+
+        local kbLabel = Instance.new("TextLabel", kbFrame)
+        kbLabel.Size = UDim2.new(0.7, 0, 1, 0)
+        kbLabel.Position = UDim2.new(0, 8, 0, 0)
+        kbLabel.BackgroundTransparency = 1
+        kbLabel.Text = "   Float Keybind"
+        kbLabel.TextColor3 = THEME.Dim
+        kbLabel.Font = Enum.Font.GothamSemibold
+        kbLabel.TextSize = 12
+        kbLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+        local kbBtn = Instance.new("TextButton", kbFrame)
+        kbBtn.Size = UDim2.new(0, 52, 0, 20)
+        kbBtn.Position = UDim2.new(1, -60, 0.5, -10)
+        kbBtn.BackgroundColor3 = THEME.DarkBlue
+        kbBtn.Text = floatKeybind
+        kbBtn.TextColor3 = THEME.Primary
+        kbBtn.Font = Enum.Font.GothamBold
+        kbBtn.TextSize = 12
+        kbBtn.AutoButtonColor = false
+        corner(kbBtn, 6)
+        stroke(kbBtn, THEME.Primary, 1.2)
+
+local listening = false
+        
+        kbBtn.Activated:Connect(function()
+            if listening then return end
+            listening = true
+            kbBtn.Text = "..."
+            kbBtn.TextColor3 = THEME.Neon1
+
+            local conn
+            conn = UIS.InputBegan:Connect(function(input, gp)
+                if gp then return end
+                -- Verificar que sea del teclado (Igual a tu ejemplo)
+                if input.UserInputType == Enum.UserInputType.Keyboard then
+                    local keyName = input.KeyCode.Name
+                    if keyName and keyName ~= "Unknown" then
+                        floatKeybind = keyName
+                        kynConfig["floatKeybind"] = keyName
+                        saveKYNConfig()
+                        kbBtn.Text = keyName
+                        kbBtn.TextColor3 = THEME.Primary
+                        KYNNotify("Float Keybind", "Tecla asignada: " .. keyName, "⌨", THEME.Primary, 1.5)
+                        listening = false
+                        conn:Disconnect()
+                    end
+                end
+            end)
+
+            task.delay(5, function()
+                if listening then
+                    listening = false
+                    if conn then conn:Disconnect() end
+                    kbBtn.Text = floatKeybind
+                    kbBtn.TextColor3 = THEME.Primary
+                end
+            end)
+        end)
+
+        -- EVENTO GLOBAL PARA ACTIVAR EL FLOAT (Igual a tu código de ejemplo)
+        UIS.InputBegan:Connect(function(input, gp)
+            -- Si está escribiendo en el chat (gp) o está configurando la tecla (listening), ignorar
+            if gp or listening then return end
+            
+            -- Obtener la tecla guardada sin que crashee el script
+            local success, targetKey = pcall(function() return Enum.KeyCode[floatKeybind] end)
+            
+            -- Si presionas la tecla correcta, activa el float
+            if success and input.KeyCode == targetKey then
+                if not floatBtnFrame or not floatBtnFrame.Visible then
+                    toggleFloatButton(true)
+                end
+                doFloatToggle()
+            end
+        end)
+    end
+end
 
 _G.KYNAddToggle("Main", {Name = "Steal Speed", Callback = function(s)
     if s then startStealSpeed() else stopStealSpeed() end
