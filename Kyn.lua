@@ -14,6 +14,24 @@ local HttpService       = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- ============================================================
+-- // SISTEMA DE SONIDO UI (Global)
+-- ============================================================
+local clickSound = Instance.new("Sound")
+clickSound.SoundId = "rbxassetid://421058925" -- Sonido de click moderno y limpio
+clickSound.Volume = 0.6
+pcall(function() clickSound.Parent = game:GetService("SoundService") end)
+
+local function attachSoundToButton(obj)
+    -- Verifica si es un botón (TextButton o ImageButton) y si no tiene ya el sonido asignado
+    if obj:IsA("GuiButton") and not obj:GetAttribute("HasClickSound") then
+        obj:SetAttribute("HasClickSound", true)
+        obj.Activated:Connect(function()
+            clickSound:Play()
+        end)
+    end
+end
+
+-- ============================================================
 -- // WIKI IMAGE SYSTEM (Auto-destrucción de archivos temp)
 -- ============================================================
 local WIKI_API             = "https://stealabrainrot.fandom.com/api.php"
@@ -395,6 +413,7 @@ gui.Name = guiName
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = CoreGui
+gui.DescendantAdded:Connect(attachSoundToButton)
 
 local btnDragFrame = Instance.new("Frame", gui)
 btnDragFrame.Size = UDim2.new(0, 55, 0, 55)
@@ -496,6 +515,19 @@ titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.TextColor3 = THEME.Primary
 
 MakeDraggable(mainDragFrame, header, "pos_mainFrame")
+
+-- Detectar plataforma (Si tiene pantalla táctil y NO tiene teclado físico, es móvil)
+local isMobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
+
+local platformLbl = Instance.new("TextLabel", header)
+platformLbl.Size = UDim2.new(0, 70, 0, 26)
+platformLbl.Position = UDim2.new(1, -110, 0.5, -13) -- Al lado izquierdo de la X
+platformLbl.BackgroundTransparency = 1
+platformLbl.Text = isMobile and "📱 Móvil" or "💻 PC"
+platformLbl.TextColor3 = THEME.Dim
+platformLbl.Font = Enum.Font.GothamBold
+platformLbl.TextSize = 12
+platformLbl.TextXAlignment = Enum.TextXAlignment.Right
 
 local closeBtn = Instance.new("TextButton", header)
 closeBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -1137,16 +1169,20 @@ currentBillboard.Adornee = targetPart
     end
     if oldASG then oldASG:Destroy() end
 
-    autoStealGui = Instance.new("ScreenGui")
+autoStealGui = Instance.new("ScreenGui")
     autoStealGui.Name = "KYN_AutoStealGUI"
     autoStealGui.ResetOnSpawn = false
     autoStealGui.IgnoreGuiInset = true
     autoStealGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     
-    -- SOLUCIÓN PC: Enviar al CoreGui o PlayerGui en lugar de enviarlo a otro ScreenGui
+    -- SOLUCIÓN PC: Enviar al CoreGui o PlayerGui (¡ESTA PARTE FALTABA!)
     if not pcall(function() autoStealGui.Parent = CoreGui end) then
         autoStealGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     end
+
+    -- Detectar botones creados en Auto Steal
+    autoStealGui.DescendantAdded:Connect(attachSoundToButton)
+    for _, obj in pairs(autoStealGui:GetDescendants()) do attachSoundToButton(obj) end
 
     local asMain = Instance.new("Frame", autoStealGui)
     asMain.Size = UDim2.new(0, 300, 0, 350)
@@ -1961,6 +1997,103 @@ local function stopXRay()
 end
 
 -- ===========================
+-- VISUAL: LINE TO BASE
+-- ===========================
+local ltbEnabled = false
+local plotBeam, plotBeamAtt0, plotBeamAtt1
+local ltbLoop, ltbCharConn
+
+local function findMyPlot()
+    local plots = Workspace:FindFirstChild("Plots")
+    if not plots then return nil end
+    for _, plot in ipairs(plots:GetChildren()) do
+        local sign = plot:FindFirstChild("PlotSign")
+        if sign then
+            local sg = sign:FindFirstChildWhichIsA("SurfaceGui", true)
+            if sg then
+                local lbl = sg:FindFirstChildWhichIsA("TextLabel", true)
+                if lbl then
+                    local txt = lbl.Text:lower()
+                    if txt:find(LocalPlayer.DisplayName:lower(), 1, true) or txt:find(LocalPlayer.Name:lower(), 1, true) then
+                        return plot
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function createPlotBeam()
+    if not ltbEnabled then return end
+    local myPlot = findMyPlot()
+    if not myPlot then return end
+    
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    if plotBeam then pcall(function() plotBeam:Destroy() end) end
+    if plotBeamAtt0 then pcall(function() plotBeamAtt0:Destroy() end) end
+    
+    plotBeamAtt0 = hrp:FindFirstChild("PlotBeamAttach_Player") or Instance.new("Attachment")
+    plotBeamAtt0.Name = "PlotBeamAttach_Player"
+    plotBeamAtt0.Parent = hrp
+    
+    local plotPart = myPlot:FindFirstChild("MainRootPart") or myPlot:FindFirstChildWhichIsA("BasePart")
+    if not plotPart then return end
+    
+    plotBeamAtt1 = plotPart:FindFirstChild("PlotBeamAttach_Plot") or Instance.new("Attachment")
+    plotBeamAtt1.Name = "PlotBeamAttach_Plot"
+    plotBeamAtt1.Position = Vector3.new(0, 5, 0)
+    plotBeamAtt1.Parent = plotPart
+    
+    plotBeam = hrp:FindFirstChild("PlotBeam") or Instance.new("Beam")
+    plotBeam.Name = "PlotBeam"
+    plotBeam.Attachment0 = plotBeamAtt0
+    plotBeam.Attachment1 = plotBeamAtt1
+    plotBeam.FaceCamera = true
+    plotBeam.LightEmission = 1
+    plotBeam.Color = ColorSequence.new(THEME.Primary)
+    plotBeam.Transparency = NumberSequence.new(0)
+    plotBeam.Width0 = 0.7
+    plotBeam.Width1 = 0.7
+    plotBeam.Parent = hrp
+end
+
+local function stopLineToBase()
+    ltbEnabled = false
+    if ltbLoop then ltbLoop:Disconnect(); ltbLoop = nil end
+    if ltbCharConn then ltbCharConn:Disconnect(); ltbCharConn = nil end
+    if plotBeam then pcall(function() plotBeam:Destroy() end) plotBeam = nil end
+    if plotBeamAtt0 then pcall(function() plotBeamAtt0:Destroy() end) plotBeamAtt0 = nil end
+    if plotBeamAtt1 then pcall(function() plotBeamAtt1:Destroy() end) plotBeamAtt1 = nil end
+end
+
+local function startLineToBase()
+    if ltbEnabled then return end
+    ltbEnabled = true
+    pcall(createPlotBeam)
+    
+    local checkCounter = 0
+    ltbLoop = RunService.Heartbeat:Connect(function()
+        if not ltbEnabled then return end
+        checkCounter = checkCounter + 1
+        if checkCounter >= 30 then
+            checkCounter = 0
+            if not plotBeam or not plotBeam.Parent or not plotBeamAtt0 or not plotBeamAtt0.Parent then
+                pcall(createPlotBeam)
+            end
+        end
+    end)
+    
+    ltbCharConn = LocalPlayer.CharacterAdded:Connect(function(char)
+        task.wait(0.5)
+        if ltbEnabled then pcall(createPlotBeam) end
+    end)
+end
+
+-- ===========================
 -- MISC: INFINITE JUMP (ANTI-CHEAT SAFE)
 -- ===========================
 -- ===========================
@@ -2163,6 +2296,22 @@ local antiLagConn
 
 local function antiLagOptimize(obj)
     pcall(function()
+        -- 1. Destruir Accesorios y Ropa (Extreme FPS Boost en personajes)
+        if obj:IsA("Accessory") or obj:IsA("Hat") or obj:IsA("Shirt") or obj:IsA("Pants") or obj:IsA("ShirtGraphic") or obj:IsA("CharacterMesh") then
+            obj:Destroy()
+            return
+        end
+
+        -- 2. Quitar texturas de Meshes (Herramientas en mano, armas y mapa)
+        if obj:IsA("SpecialMesh") then
+            obj.TextureId = ""
+        end
+        if obj:IsA("MeshPart") then
+            obj.TextureID = ""
+            obj.RenderFidelity = Enum.RenderFidelity.Performance
+        end
+
+        -- 3. Optimizaciones generales
         if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
             obj.Enabled = false
         end
@@ -2170,14 +2319,14 @@ local function antiLagOptimize(obj)
             obj.Transparency = 1
         end
         if obj:IsA("BasePart") then
-            obj.Material = Enum.Material.Plastic
+            obj.Material = Enum.Material.SmoothPlastic -- SmoothPlastic quita detalles de relieve (más FPS)
             obj.Reflectance = 0
             obj.CastShadow = false
         end
         if obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
             obj.Enabled = false
         end
-        if obj:IsA("MeshPart") or obj:IsA("UnionOperation") then
+        if obj:IsA("UnionOperation") then
             obj.RenderFidelity = Enum.RenderFidelity.Performance
         end
     end)
@@ -2202,8 +2351,20 @@ local function antiLagApplyAll()
         terrain.WaterReflectance = 0
         terrain.WaterTransparency = 1
     end
+    
+    -- Aplicar al mapa, a los personajes y a los items equipados
     for _, v in pairs(Workspace:GetDescendants()) do
         antiLagOptimize(v)
+    end
+
+    -- Aplicar a las herramientas que están GUARDADAS en las mochilas (para que no den lag al equiparse)
+    for _, player in pairs(Players:GetPlayers()) do
+        local bp = player:FindFirstChild("Backpack")
+        if bp then
+            for _, v in pairs(bp:GetDescendants()) do
+                antiLagOptimize(v)
+            end
+        end
     end
 end
 
@@ -2211,6 +2372,7 @@ local function startAntiLag()
     if antiLagEnabled then return end
     antiLagEnabled = true
     antiLagApplyAll()
+    -- Vigilar en tiempo real cuando alguien se equipa un item, respawnea o lanza algo
     antiLagConn = Workspace.DescendantAdded:Connect(antiLagOptimize)
     pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
 end
@@ -2677,9 +2839,13 @@ local function updateLagbackDetector()
     local realHRP = char and char:FindFirstChild("HumanoidRootPart")
     
     if realHRP and serverGhost then
-        local currentPos = realHRP.Position
+local currentPos = realHRP.Position
         if lastPlayerPos then
-            if (currentPos - lastPlayerPos).Magnitude > 2.5 then
+            local distance = (currentPos - lastPlayerPos).Magnitude
+            -- Umbral dinámico: Detecta lagbacks desde 1.0 stud, pero se ajusta si vas muy rápido
+            local threshold = math.max(1.0, (realHRP.AssemblyLinearVelocity.Magnitude / 45) + 0.2)
+            
+            if distance > threshold then
                 serverGhost.CFrame = realHRP.CFrame
                 if not isIgnoringTeleport then
                     lagbackWarningEnd = os.clock() + 2.5
@@ -2920,14 +3086,20 @@ local function startStealSpeed()
     -- Crear GUI si no existe
     if ssGui and ssGui.Parent then return end
 
-    ssGui = Instance.new("ScreenGui")
+ssGui = Instance.new("ScreenGui")
     ssGui.Name            = "KYN_StealSpeedGUI"
     ssGui.ResetOnSpawn    = false
     ssGui.IgnoreGuiInset  = true
     ssGui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
+    
+    -- SOLUCIÓN PC: Asignar el Parent (ESTO SE HABÍA BORRADO)
     if not pcall(function() ssGui.Parent = CoreGui end) then
         ssGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     end
+
+    -- Detectar botones creados en Steal Speed
+    ssGui.DescendantAdded:Connect(attachSoundToButton)
+    for _, obj in pairs(ssGui:GetDescendants()) do attachSoundToButton(obj) end
 
     local ssFrame = Instance.new("Frame", ssGui)
     ssFrame.Size              = UDim2.new(0, 260, 0, 175)
@@ -2991,7 +3163,7 @@ local function startStealSpeed()
     pcall(function()
         LocalPlayer:GetAttributeChangedSignal("Stealing"):Connect(function()
             if LocalPlayer:GetAttribute("Stealing") == true then
-                ssStatus.Text      = "● ¡ROBANDO! (Speed Activo)"
+                ssStatus.Text      = "● Speed Activo"
                 ssStatus.TextColor3 = THEME.Green
             else
                 ssStatus.Text      = "● No estás robando"
@@ -3149,31 +3321,85 @@ end
 
 local desyncGroup = {}  
 
-local ctrlDesyncRespawn = _G.KYNAddToggle("Main", {
-    Name          = "Desync Respawn",
-    Callback      = function(s)
-        if s then
-            activateDesync("Respawn")
-            KYNNotify("Desync Respawn", "Modo Respawn activado ✔", "⚡", THEME.Primary)
-        else
-            if desyncMode == "Respawn" then deactivateDesync() end
-        end
-    end,
-})
-local ctrlDesyncCloner = _G.KYNAddToggle("Main", {
-    Name          = "Desync Cloner",
-    Callback      = function(s)
-        if s then
-            activateDesync("Cloner")
-            KYNNotify("Desync Cloner", "Modo Cloner activado ✔", "🔀", THEME.Green)
-        else
-            if desyncMode == "Cloner" then deactivateDesync() end
-        end
-    end,
-})
+if isMobile then
+    -- ===========================
+    -- TOGGLES PARA MÓVIL
+    -- ===========================
+    local ctrlDesyncRespawn = _G.KYNAddToggle("Main", {
+        Name          = "Desync Respawn",
+        Callback      = function(s)
+            if s then
+                activateDesync("Respawn")
+                KYNNotify("Desync Respawn", "Modo Respawn activado ✔", "⚡", THEME.Primary)
+            else
+                if desyncMode == "Respawn" then deactivateDesync() end
+            end
+        end,
+    })
+    local ctrlDesyncCloner = _G.KYNAddToggle("Main", {
+        Name          = "Desync Cloner",
+        Callback      = function(s)
+            if s then
+                activateDesync("Cloner")
+                KYNNotify("Desync Cloner", "Modo Cloner activado ✔", "🔀", THEME.Green)
+            else
+                if desyncMode == "Cloner" then deactivateDesync() end
+            end
+        end,
+    })
 
-ctrlDesyncRespawn.ExclusiveGroup = {ctrlDesyncRespawn, ctrlDesyncCloner}
-ctrlDesyncCloner.ExclusiveGroup  = {ctrlDesyncRespawn, ctrlDesyncCloner}
+    ctrlDesyncRespawn.ExclusiveGroup = {ctrlDesyncRespawn, ctrlDesyncCloner}
+    ctrlDesyncCloner.ExclusiveGroup  = {ctrlDesyncRespawn, ctrlDesyncCloner}
+else
+    -- ===========================
+    -- TOGGLE PARA PC (RAKNET HOOK + LAGBACK VISUAL)
+    -- ===========================
+    local desyncPCHookActive = false
+    local desyncPCHookInitialized = false
+
+    _G.KYNAddToggle("Main", {
+        Name = "Desync PC",
+        Callback = function(s)
+            desyncPCHookActive = s
+            desyncActive = s -- Esto es vital para que el loop del Lagback funcione
+            
+            local char = LocalPlayer.Character
+
+            if s then
+                if not desyncPCHookInitialized then
+                    -- Verificar si el ejecutor soporta Raknet
+                    if typeof(raknet) == "table" and raknet.add_send_hook then
+                        desyncPCHookInitialized = true
+                        pcall(function()
+                            raknet.add_send_hook(function(packet)
+                                -- Solo modifica los paquetes si el toggle está activo
+                                if desyncPCHookActive and packet.PacketId == 0x1B then
+                                    local data = packet.AsBuffer
+                                    buffer.writeu32(data, 1, 0xFFFFFFFF)
+                                    packet:SetData(data)
+                                end
+                            end)
+                        end)
+                    else
+                        KYNNotify("Error", "Tu ejecutor de PC no soporta Raknet", "❌", THEME.Red, 3)
+                        desyncActive = false
+                        desyncPCHookActive = false
+                        return
+                    end
+                end
+                
+                -- Iniciar el detector de Lagback (Fantasma)
+                if char then startLagbackDetector(char) end
+                KYNNotify("Desync PC", "Desync de PC activado ✔", "💻", THEME.Primary)
+                
+            else
+                -- Apagar el detector de Lagback visual
+                stopLagbackDetector()
+                KYNNotify("Desync PC", "Desync de PC desactivado ❌", "💻", THEME.Dim)
+            end
+        end
+    })
+end
 
 _G.KYNAddToggle("Main", {Name = "Auto Steal", Callback = function(s)
     if s then startAutoSteal() else stopAutoSteal() end
@@ -3297,6 +3523,10 @@ end})
 _G.KYNAddToggle("Visual", {Name = "X-Ray Base", Callback = function(s)
     if s then startXRay() else stopXRay() end
     KYNNotify("X-Ray Base", s and "Activado ✔" or "Desactivado", "🔵", THEME.Secondary, 1.8)
+end})
+_G.KYNAddToggle("Visual", {Name = "Line to Base", Callback = function(s)
+    if s then startLineToBase() else stopLineToBase() end
+    KYNNotify("Line to Base", s and "Rayo a la base activado ✔" or "Desactivado", "📍", THEME.Primary, 1.8)
 end})
 
 _G.KYNAddToggle("Misc", {Name = "Infinite Jump", Callback = function(s)
