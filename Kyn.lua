@@ -3321,6 +3321,9 @@ end
 
 local desyncGroup = {}  
 
+-- Calculamos de nuevo la plataforma porque la variable de arriba estaba bloqueada en la UI
+local isMobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
+
 if isMobile then
     -- ===========================
     -- TOGGLES PARA MÓVIL
