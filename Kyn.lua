@@ -1,6 +1,6 @@
 -- =====================================================================
--- ⚡ KYN HUB - ELECTRIC BLUE EDITION (PC & MOBILE OPTIMIZED) ⚡
--- =====================================================================
+-- ⚡ KYN HUB⚡
+--===================================================================
 
 local CoreGui           = game:GetService("CoreGui")
 local TweenService      = game:GetService("TweenService")
@@ -819,11 +819,10 @@ end)
 
 local isOpen = false
 local isAnimating = false
-local doFloatToggle -- forward declaration for F key bind
 
 -- ============================================================
--- // HUD DE FPS / PING (PERMANENTE, ARRASTRABLE)
--- ============================================================
+-- // HUD DE FPS / PING
+-- ===========================================================
 do
     local fpsCount  = 0
     local fpsClock  = os.clock()
@@ -1970,10 +1969,17 @@ local function startXRay()
         local Plots = Workspace:FindFirstChild("Plots")
         if not Plots then return end
         for _, Plot in ipairs(Plots:GetChildren()) do
-            if Plot:IsA("Model") and Plot:FindFirstChild("Decorations") then
-                for _, Part in ipairs(Plot.Decorations:GetDescendants()) do
-                    if Part:IsA("BasePart") then
-                        Part.Transparency = 0.8
+            if Plot:IsA("Model") then
+                -- Transparencia para Decorations
+                if Plot:FindFirstChild("Decorations") then
+                    for _, Part in ipairs(Plot.Decorations:GetDescendants()) do
+                        if Part:IsA("BasePart") then Part.Transparency = 0.8 end
+                    end
+                end
+                -- Transparencia para Skin
+                if Plot:FindFirstChild("Skin") then
+                    for _, Part in ipairs(Plot.Skin:GetDescendants()) do
+                        if Part:IsA("BasePart") then Part.Transparency = 0.8 end
                     end
                 end
             end
@@ -1986,10 +1992,17 @@ local function stopXRay()
     local Plots = Workspace:FindFirstChild("Plots")
     if not Plots then return end
     for _, Plot in ipairs(Plots:GetChildren()) do
-        if Plot:IsA("Model") and Plot:FindFirstChild("Decorations") then
-            for _, Part in ipairs(Plot.Decorations:GetDescendants()) do
-                if Part:IsA("BasePart") then
-                    Part.Transparency = 1
+        if Plot:IsA("Model") then
+            -- Restaurar Decorations
+            if Plot:FindFirstChild("Decorations") then
+                for _, Part in ipairs(Plot.Decorations:GetDescendants()) do
+                    if Part:IsA("BasePart") then Part.Transparency = 1 end
+                end
+            end
+            -- Restaurar Skin
+            if Plot:FindFirstChild("Skin") then
+                for _, Part in ipairs(Plot.Skin:GetDescendants()) do
+                    if Part:IsA("BasePart") then Part.Transparency = 1 end
                 end
             end
         end
@@ -2093,9 +2106,6 @@ local function startLineToBase()
     end)
 end
 
--- ===========================
--- MISC: INFINITE JUMP (ANTI-CHEAT SAFE)
--- ===========================
 -- ===========================
 -- MISC: INFINITE JUMP
 -- ===========================
@@ -2694,7 +2704,6 @@ local desyncMode         = nil
 local desyncDebounce     = false
 local isIgnoringTeleport = false
 
-local isMobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
 local desyncPCHookActive = false
 local desyncPCHookInitialized = false
 
@@ -3007,55 +3016,229 @@ local function deactivateDesync()
 end
 
 -- ============================================================
--- // FLOAT (PLATFORM-BASED, CUSTOM KEYBIND)
+-- // INSTANT RESPAWN LOGIC
 -- ============================================================
-local floatBtnFrame   = nil
-local floating        = false
-local floatPlatform   = nil
-local floatLoopThread = nil
+local respawnKeybind = kynConfig["respawnKeybind"] or "R"
+local respawnCharConn = nil
 
+local function doInstantRespawn()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hum or not hrp or hum.Health <= 0 then return end
+
+    isForcingReset = true -- Evita conflictos con el Anti-Ragdoll
+    
+    -- Desvincular cámara para que no se note el tirón del TP
+    local cam = workspace.CurrentCamera
+    cam.CameraSubject = nil 
+
+    if respawnCharConn then respawnCharConn:Disconnect() end
+    respawnCharConn = LocalPlayer.CharacterAdded:Connect(function(newChar)
+        respawnCharConn:Disconnect()
+        cam.CameraSubject = nil
+        task.defer(function()
+            local newHum = newChar:WaitForChild("Humanoid", 0.5)
+            if newHum then cam.CameraSubject = newHum end
+        end)
+    end)
+
+    -- TP súper lejos y muerte instantánea
+    hrp.CFrame = CFrame.new(99999, 99999, 99999)
+    hum.Health = 0
+    char:BreakJoints()
+
+    -- Forzar recarga inmediata
+    task.delay(0.05, function()
+        pcall(function() LocalPlayer:LoadCharacter() end)
+    end)
+
+    task.delay(2, function() isForcingReset = false end)
+end
+
+local respawnBtnFrame = nil
+
+local function toggleRespawnButton(state)
+    if state then
+        if not respawnBtnFrame then
+            respawnBtnFrame = Instance.new("Frame", gui)
+            respawnBtnFrame.Size = UDim2.new(0, 55, 0, 55)
+            respawnBtnFrame.Position = UDim2.new(1, -80, 0.5, 65) 
+            respawnBtnFrame.BackgroundTransparency = 1
+            respawnBtnFrame.Active = true
+
+            local rBtn = Instance.new("TextButton", respawnBtnFrame)
+            rBtn.Size = UDim2.new(1, 0, 1, 0)
+            rBtn.BackgroundColor3 = THEME.Frame
+            rBtn.Text = "Respawn"
+            rBtn.Font = Enum.Font.GothamBold
+            rBtn.TextColor3 = THEME.Red
+            rBtn.TextSize = 13 -- Tamaño igual al de Float
+            corner(rBtn, 50)
+
+            local rStroke = stroke(rBtn, Color3.new(1, 1, 1), 3)
+            local rGrad = Instance.new("UIGradient", rStroke)
+            -- Mismo efecto de brillo de 5 puntos pero en rojo
+            rGrad.Color = ColorSequence.new{
+                ColorSequenceKeypoint.new(0,    THEME.Red),
+                ColorSequenceKeypoint.new(0.25, Color3.fromRGB(130, 20, 40)),
+                ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(255, 100, 120)),
+                ColorSequenceKeypoint.new(0.75, Color3.fromRGB(130, 20, 40)),
+                ColorSequenceKeypoint.new(1,    THEME.Red),
+            }
+
+            task.spawn(function()
+                while respawnBtnFrame and respawnBtnFrame.Parent do
+                    rGrad.Rotation = (rGrad.Rotation + 2) % 360
+                    RunService.RenderStepped:Wait()
+                end
+            end)
+
+            MakeDraggable(respawnBtnFrame, rBtn, "pos_respawnBtn")
+
+            rBtn.Activated:Connect(function()
+                rBtn.Text = "..."
+                doInstantRespawn()
+                task.delay(1, function()
+                    if rBtn then rBtn.Text = "Respawn" end
+                end)
+            end)
+        end
+        respawnBtnFrame.Visible = true
+    else
+        if respawnBtnFrame then respawnBtnFrame.Visible = false end
+    end
+end
+
+-- ============================================================
+-- // FLOAT (HIGH JUMP + SLOW FALL)
+-- ============================================================
+local floatBtnFrame = nil
 local floatKeybind = kynConfig["floatKeybind"] or "F"
 
-local function enableFloat()
-    if floatPlatform then floatPlatform:Destroy() end
-    floatPlatform = Instance.new("Part")
-    floatPlatform.Name         = "KYN_FloatPlat"
-    floatPlatform.Size         = Vector3.new(6, 1, 6)
-    floatPlatform.Anchored     = true
-    floatPlatform.CanCollide   = true
-    floatPlatform.Transparency = 1
-    floatPlatform.Parent       = Workspace
+-- Empaquetamos en una tabla para no sumar al límite de 200 locals
+local FL = {
+    Activo = false,
+    CaidaActiva = false,
+    Conn = nil,
+    JumpAlto = 120,
+    CaidaLenta = -1,
+    TiempoAnclado = 0.1,
+    TiempoPlat = 0.5,
+    DistPlat = 4,
+    JumpOriginal = 50,
+    UseJumpOriginal = false
+}
 
-    if floatLoopThread then task.cancel(floatLoopThread) end
-    floatLoopThread = task.spawn(function()
-        while floating and floatPlatform do
-            local char = LocalPlayer.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                floatPlatform.CFrame = hrp.CFrame - Vector3.new(0, 3, 0)
+local function crearPlataformaAbajo(hrp)
+    local plat = Instance.new("Part")
+    plat.Name = "KYN_TempPlat"
+    plat.Size = Vector3.new(8, 1, 8)
+    plat.Anchored = true
+    plat.CanCollide = true
+    plat.Material = Enum.Material.SmoothPlastic
+    plat.Color = THEME.Primary -- Usa el color azul/cyan de tu menú
+    plat.Position = hrp.Position - Vector3.new(0, hrp.Size.Y/2 + FL.DistPlat, 0)
+    plat.Parent = Workspace
+    
+    task.delay(FL.TiempoPlat, function()
+        if plat and plat.Parent then plat:Destroy() end
+    end)
+end
+
+local function activarCaidaLenta()
+    FL.CaidaActiva = true
+    if FL.Conn then FL.Conn:Disconnect(); FL.Conn = nil end
+
+    -- Guardamos en qué momento empezamos a caer
+    local tiempoInicio = os.clock()
+
+    FL.Conn = RunService.Heartbeat:Connect(function()
+        if not FL.CaidaActiva then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum then return end
+
+        -- Esperamos 0.5 segundos antes de empezar a checar el suelo
+        -- Así evitamos que detecte la plataforma invisible que acabas de crear
+        if (os.clock() - tiempoInicio) > 0.5 then
+            if hum.FloorMaterial ~= Enum.Material.Air then
+                FL.CaidaActiva = false
+                hum.JumpPower = FL.JumpOriginal
+                hum.UseJumpPower = FL.UseJumpOriginal
+                if FL.Conn then FL.Conn:Disconnect(); FL.Conn = nil end
+                return
             end
-            task.wait(0.05)
+        end
+
+        local vel = hrp.AssemblyLinearVelocity
+        if vel.Y < FL.CaidaLenta then
+            hrp.AssemblyLinearVelocity = Vector3.new(vel.X, FL.CaidaLenta, vel.Z)
         end
     end)
 end
 
-local function disableFloat()
-    if floatPlatform then floatPlatform:Destroy(); floatPlatform = nil end
-    if floatLoopThread then task.cancel(floatLoopThread); floatLoopThread = nil end
-end
+local function doFloatAction()
+    if FL.Activo then return end
+    FL.Activo = true
 
-local function doFloatToggle()
-    floating = not floating
-    local fBtn = floatBtnFrame and floatBtnFrame:FindFirstChildOfClass("TextButton")
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    
+    if not hrp or not hum then
+        FL.Activo = false
+        return
+    end
 
-    if floating then
-        if fBtn then fBtn.Text = "Float ☁"; fBtn.TextColor3 = THEME.Green end
-        enableFloat()
-    else
-        if fBtn then fBtn.Text = "Float"; fBtn.TextColor3 = THEME.Primary end
-        disableFloat()
+local fBtn = floatBtnFrame and floatBtnFrame:FindFirstChildOfClass("TextButton")
+    if fBtn then 
+        fBtn.Text = "Activando..."
+        fBtn.TextColor3 = THEME.Green
+    end
+
+    -- Guardar el salto original solo si no estamos ya cayendo
+    if not FL.CaidaActiva then
+        FL.JumpOriginal = hum.JumpPower
+        FL.UseJumpOriginal = hum.UseJumpPower
+    end
+
+    hum.UseJumpPower = true
+    hum.JumpPower = FL.JumpAlto
+    hum.Jump = true
+    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+
+    task.wait(0.08)
+
+    local velAntes = hrp.AssemblyLinearVelocity
+    hrp.Anchored = true
+
+    crearPlataformaAbajo(hrp)
+
+    task.wait(FL.TiempoAnclado)
+
+    hrp.Anchored = false
+    hrp.AssemblyLinearVelocity = Vector3.new(velAntes.X, 0, velAntes.Z)
+
+    activarCaidaLenta()
+
+    FL.Activo = false
+    if fBtn then 
+        fBtn.Text = "Float"
+        fBtn.TextColor3 = THEME.Primary
     end
 end
+
+-- Limpiar si el jugador muere
+LocalPlayer.CharacterRemoving:Connect(function()
+    FL.Activo = false
+    FL.CaidaActiva = false
+    if FL.Conn then FL.Conn:Disconnect(); FL.Conn = nil end
+end)
 
 local function toggleFloatButton(state)
     if state then
@@ -3086,32 +3269,15 @@ local function toggleFloatButton(state)
                 end
             end)
 
-            -- Drag con guardado de posición
             MakeDraggable(floatBtnFrame, fBtn, "pos_floatBtn")
 
-            fBtn.Activated:Connect(doFloatToggle)
+            fBtn.Activated:Connect(doFloatAction) -- Cambio aquí
         end
         floatBtnFrame.Visible = true
     else
         if floatBtnFrame then floatBtnFrame.Visible = false end
-        floating = false
-        disableFloat()
-        if floatBtnFrame then
-            local fBtn = floatBtnFrame:FindFirstChildOfClass("TextButton")
-            if fBtn then
-                fBtn.Text       = "Float"
-                fBtn.TextColor3 = THEME.Primary
-            end
-        end
     end
 end
-
-LocalPlayer.CharacterAdded:Connect(function(char)
-    if floating then
-        task.wait(0.5)
-        enableFloat()
-    end
-end)
 
 -- ============================================================
 -- // STEAL SPEED
@@ -3486,7 +3652,7 @@ local listening = false
             end)
         end)
 
-        -- EVENTO GLOBAL PARA ACTIVAR EL FLOAT (Igual a tu código de ejemplo)
+-- EVENTO GLOBAL PARA ACTIVAR EL FLOAT (Igual a tu código de ejemplo)
         UIS.InputBegan:Connect(function(input, gp)
             -- Si está escribiendo en el chat (gp) o está configurando la tecla (listening), ignorar
             if gp or listening then return end
@@ -3499,7 +3665,91 @@ local listening = false
                 if not floatBtnFrame or not floatBtnFrame.Visible then
                     toggleFloatButton(true)
                 end
-                doFloatToggle()
+                doFloatAction()
+            end
+        end)
+    end
+end
+
+_G.KYNAddToggle("Main", {Name = "Respawn Button", Callback = function(s)
+    toggleRespawnButton(s)
+    KYNNotify("Respawn", s and "Botón mostrado ✔" or "Oculto", "💀", THEME.Red, 1.8)
+end})
+
+do
+    local mainTab = tabs["Main"]
+    if mainTab then
+        local kbFrame = Instance.new("Frame", mainTab)
+        kbFrame.Size = UDim2.new(1, 0, 0, 28)
+        kbFrame.BackgroundColor3 = THEME.Frame
+        kbFrame.BackgroundTransparency = 0.5
+        kbFrame.BorderSizePixel = 0
+        corner(kbFrame, 6)
+
+        local kbLabel = Instance.new("TextLabel", kbFrame)
+        kbLabel.Size = UDim2.new(0.7, 0, 1, 0)
+        kbLabel.Position = UDim2.new(0, 8, 0, 0)
+        kbLabel.BackgroundTransparency = 1
+        kbLabel.Text = "   Respawn Keybind"
+        kbLabel.TextColor3 = THEME.Dim
+        kbLabel.Font = Enum.Font.GothamSemibold
+        kbLabel.TextSize = 12
+        kbLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+        local kbBtn = Instance.new("TextButton", kbFrame)
+        kbBtn.Size = UDim2.new(0, 52, 0, 20)
+        kbBtn.Position = UDim2.new(1, -60, 0.5, -10)
+        kbBtn.BackgroundColor3 = THEME.DarkBlue
+        kbBtn.Text = respawnKeybind
+        kbBtn.TextColor3 = THEME.Primary
+        kbBtn.Font = Enum.Font.GothamBold
+        kbBtn.TextSize = 12
+        kbBtn.AutoButtonColor = false
+        corner(kbBtn, 6)
+        stroke(kbBtn, THEME.Primary, 1.2)
+
+        local listening = false
+        
+        kbBtn.Activated:Connect(function()
+            if listening then return end
+            listening = true
+            kbBtn.Text = "..."
+            kbBtn.TextColor3 = THEME.Neon1
+
+            local conn
+            conn = UIS.InputBegan:Connect(function(input, gp)
+                if gp then return end
+                if input.UserInputType == Enum.UserInputType.Keyboard then
+                    local keyName = input.KeyCode.Name
+                    if keyName and keyName ~= "Unknown" then
+                        respawnKeybind = keyName
+                        kynConfig["respawnKeybind"] = keyName
+                        saveKYNConfig()
+                        kbBtn.Text = keyName
+                        kbBtn.TextColor3 = THEME.Primary
+                        KYNNotify("Respawn", "Tecla asignada: " .. keyName, "⌨", THEME.Primary, 1.5)
+                        listening = false
+                        conn:Disconnect()
+                    end
+                end
+            end)
+
+            task.delay(5, function()
+                if listening then
+                    listening = false
+                    if conn then conn:Disconnect() end
+                    kbBtn.Text = respawnKeybind
+                    kbBtn.TextColor3 = THEME.Primary
+                end
+            end)
+        end)
+
+        -- EVENTO GLOBAL PARA ACTIVAR EL RESPAWN CON TECLA
+        UIS.InputBegan:Connect(function(input, gp)
+            if gp or listening then return end
+            local success, targetKey = pcall(function() return Enum.KeyCode[respawnKeybind] end)
+            if success and input.KeyCode == targetKey then
+                doInstantRespawn()
             end
         end)
     end
