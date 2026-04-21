@@ -230,15 +230,37 @@ local function processNotifQueue()
                 end
             end)
 
-            local icon = Instance.new("TextLabel", card)
-            icon.Size               = UDim2.new(0, 36, 1, 0)
-            icon.Position           = UDim2.new(0, 8, 0, 0)
-            icon.BackgroundTransparency = 1
-            icon.Text               = data.icon or "⚡"
-            icon.Font               = Enum.Font.GothamBold
-            icon.TextSize           = 22
-            icon.TextColor3         = data.color or THEME.Primary
-            icon.ZIndex             = 202
+-- Si la notificación trae una imagen, mostramos la imagen circular
+            if data.image and data.image ~= "" then
+                local imgHolder = Instance.new("Frame", card)
+                imgHolder.Size             = UDim2.new(0, 36, 0, 36)
+                imgHolder.Position         = UDim2.new(0, 8, 0.5, -18)
+                imgHolder.BackgroundColor3 = THEME.Frame
+                imgHolder.BorderSizePixel  = 0
+                imgHolder.ZIndex           = 202
+                Instance.new("UICorner", imgHolder).CornerRadius = UDim.new(1, 0)
+
+                local imgStroke = stroke(imgHolder, data.color or THEME.Primary, 1.5)
+
+                local imgIcon = Instance.new("ImageLabel", imgHolder)
+                imgIcon.Size                   = UDim2.new(1, 0, 1, 0)
+                imgIcon.BackgroundTransparency = 1
+                imgIcon.Image                  = data.image
+                imgIcon.ScaleType              = Enum.ScaleType.Fit
+                imgIcon.ZIndex                 = 202
+                Instance.new("UICorner", imgIcon).CornerRadius = UDim.new(1, 0)
+            else
+                -- Si no tiene imagen, mostramos el icono de texto por defecto
+                local icon = Instance.new("TextLabel", card)
+                icon.Size               = UDim2.new(0, 36, 1, 0)
+                icon.Position           = UDim2.new(0, 8, 0, 0)
+                icon.BackgroundTransparency = 1
+                icon.Text               = data.icon or "⚡"
+                icon.Font               = Enum.Font.GothamBold
+                icon.TextSize           = 22
+                icon.TextColor3         = data.color or THEME.Primary
+                icon.ZIndex             = 202
+            end
 
             local titleLbl = Instance.new("TextLabel", card)
             titleLbl.Size           = UDim2.new(1, -52, 0, 20)
@@ -280,14 +302,26 @@ local function processNotifQueue()
     end)
 end
 
-local function KYNNotify(title, msg, icon, color, duration)
+local function KYNImageNotify(title, msg, imageAsset, color, duration)
     if kynRestoring then return end  
     table.insert(notifQueue, {
         title    = title,
         msg      = msg,
-        icon     = icon or "⚡",
+        image    = imageAsset, -- Pasamos el asset de la imagen
         color    = color or THEME.Primary,
-        duration = duration or 2.8,
+        duration = duration or 3.5,
+    })
+    processNotifQueue()
+end
+
+local function KYNNotify(title, msg, iconStr, color, duration)
+    if kynRestoring then return end  
+    table.insert(notifQueue, {
+        title    = title,
+        msg      = msg,
+        icon     = iconStr, 
+        color    = color or THEME.Primary,
+        duration = duration or 3.5,
     })
     processNotifQueue()
 end
@@ -1451,8 +1485,24 @@ autoStealGui = Instance.new("ScreenGui")
             if #allPets > 0 then
                 local newTop1 = allPets[1]
                 if newTop1.uid ~= lastKnownHighestUid then
+                    -- Evitar spam la primera vez que se activa el script
+                    local isFirstTime = (lastKnownHighestUid == nil)
+                    
                     lastKnownHighestUid = newTop1.uid
                     manualTargetUid = nil 
+                    
+                    if not isFirstTime then
+                        -- Buscar la imagen en caché/wiki y enviar la notificación
+                        fetchBrainrotImage(newTop1.name, function(asset)
+                            KYNImageNotify(
+                                "NUEVO OBJETIVO #1", 
+                                newTop1.name .. " (" .. newTop1.genText .. ")",
+                                asset, 
+                                THEME.Primary, 
+                                4
+                            )
+                        end)
+                    end
                 end
                 local foundManual = false
                 if manualTargetUid then
