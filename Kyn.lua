@@ -1047,7 +1047,7 @@ local autoStealLoop2 = nil
 -- [NUEVO] Variable global para asegurar que el parcheo se haga solo una vez
 local isSynchronizerPatched = false 
 
-local function startAutoSteal()
+function startAutoSteal()
     if autoStealActive then return end
     autoStealActive = true
 
@@ -1707,7 +1707,7 @@ local _ESP = {
     xrayConn       = nil,
 }
 
-local function startESPPlayer()
+function startESPPlayer()
     local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
     if _ESP.playerFolder then _ESP.playerFolder:Destroy() end
     _ESP.playerFolder = Instance.new("Folder")
@@ -1782,7 +1782,7 @@ end
 -- ===========================
 _ESP.baseConn = nil
 
-local function startESPBase()
+function startESPBase()
     local function getOwnBasePosition()
         local Plots = Workspace:FindFirstChild("Plots")
         if not Plots then return nil end
@@ -2049,7 +2049,7 @@ local function unhookStealerPlayer(player)
     removeStealerESP(player)
 end
 
-local function startESPStealers()
+function startESPStealers()
     _ESP.stealersActive = true
     _ESP.stealerConns   = {}
 
@@ -2081,7 +2081,7 @@ end
 _ESP.mineConn = nil
 _ESP.mineFolder = nil
 
-local function startESPMine()
+function startESPMine()
     if _ESP.mineFolder then _ESP.mineFolder:Destroy() end
     _ESP.mineFolder = Instance.new("Folder", CoreGui)
     _ESP.mineFolder.Name = "KYN_MineESP"
@@ -2140,7 +2140,7 @@ end
 -- ===========================
 _ESP.xrayConn = nil
 
-local function startXRay()
+function startXRay()
     if _ESP.xrayConn then _ESP.xrayConn:Disconnect(); _ESP.xrayConn = nil end
     _ESP.xrayConn = RunService.Heartbeat:Connect(function()
         local Plots = Workspace:FindFirstChild("Plots")
@@ -2260,7 +2260,7 @@ local function stopLineToBase()
     if plotBeamAtt1 then pcall(function() plotBeamAtt1:Destroy() end) plotBeamAtt1 = nil end
 end
 
-local function startLineToBase()
+function startLineToBase()
     if ltbEnabled then return end
     ltbEnabled = true
     pcall(createPlotBeam)
@@ -2297,7 +2297,7 @@ local IJ = {
     charConn   = nil,
     character  = nil,
 }
-local function startInfiniteJump()
+function startInfiniteJump()
     IJ.Enabled   = true
     IJ.isJumping = false
     IJ.character  = LocalPlayer.Character
@@ -2473,7 +2473,7 @@ local function v1HeartbeatLoop()
     end
 end
 
-local function startAntiRagdoll()
+function startAntiRagdoll()
     if antiRagdollMode == "v1" then return end
     if not cacheCharacterData() then return end
     antiRagdollMode = "v1"
@@ -2586,7 +2586,7 @@ local function antiLagApplyAll()
     end
 end
 
-local function startAntiLag()
+function startAntiLag()
     if antiLagEnabled then return end
     antiLagEnabled = true
     antiLagApplyAll()
@@ -2662,7 +2662,7 @@ local function scanAndFreezeAllAnims(character)
     end
 end
 
-local function startFreezeAnims()
+function startFreezeAnims()
     local char = LocalPlayer.Character
     if not char then return end
     freezeAnimEnabled = true
@@ -2797,7 +2797,7 @@ local function attackSentry()
     end
 end
 
-local function startAntiSentry()
+function startAntiSentry()
     if antiSentryConn then return end
     antiSentryConn = RunService.Heartbeat:Connect(function()
         if not antiSentryEnabled then return end
@@ -2858,7 +2858,7 @@ local function clearBeeEffects()
     end
 end
 
-local function startAntiBee()
+function startAntiBee()
     if antiBeeEnabled then return end
     antiBeeEnabled = true
     clearBeeEffects()
@@ -3126,7 +3126,7 @@ local function updateLagbackDetector()
     end
 end
 
-local function startLagbackDetector(character)
+function startLagbackDetector(character)
     lastPlayerPos = nil
     createServerGhost(character)
     if rubberbandLoop then rubberbandLoop:Disconnect() end
@@ -3551,7 +3551,7 @@ local SS_MAX      = 100
 local ssGui       = nil
 local ssHeartbeat = nil
 
-local function startStealSpeed()
+function startStealSpeed()
     ssEnabled = true
     if ssHeartbeat then ssHeartbeat:Disconnect() end
     ssHeartbeat = RunService.Heartbeat:Connect(function()
