@@ -221,6 +221,16 @@ local function processNotifQueue()
             }
             cGrad.Rotation = 0
 
+-- Línea vertical de color sólido
+            local leftLine = Instance.new("Frame", card)
+            leftLine.Size = UDim2.new(0, 3, 1, -16) 
+            leftLine.Position = UDim2.new(0, 6, 0.5, 0) 
+            leftLine.AnchorPoint = Vector2.new(0, 0.5)
+            leftLine.BackgroundColor3 = data.color or THEME.Primary -- Usa el color de la notificación
+            leftLine.BorderSizePixel = 0
+            leftLine.ZIndex = 203
+            Instance.new("UICorner", leftLine).CornerRadius = UDim.new(0, 4)
+
             local rotConn
             rotConn = RunService.RenderStepped:Connect(function()
                 if card and card.Parent then
@@ -230,11 +240,10 @@ local function processNotifQueue()
                 end
             end)
 
--- Si la notificación trae una imagen, mostramos la imagen circular
-            if data.image and data.image ~= "" then
+if data.image and data.image ~= "" then
                 local imgHolder = Instance.new("Frame", card)
                 imgHolder.Size             = UDim2.new(0, 36, 0, 36)
-                imgHolder.Position         = UDim2.new(0, 8, 0.5, -18)
+                imgHolder.Position         = UDim2.new(0, 16, 0.5, -18) -- Más separado de la línea
                 imgHolder.BackgroundColor3 = THEME.Frame
                 imgHolder.BorderSizePixel  = 0
                 imgHolder.ZIndex           = 202
@@ -250,10 +259,9 @@ local function processNotifQueue()
                 imgIcon.ZIndex                 = 202
                 Instance.new("UICorner", imgIcon).CornerRadius = UDim.new(1, 0)
             else
-                -- Si no tiene imagen, mostramos el icono de texto por defecto
                 local icon = Instance.new("TextLabel", card)
                 icon.Size               = UDim2.new(0, 36, 1, 0)
-                icon.Position           = UDim2.new(0, 8, 0, 0)
+                icon.Position           = UDim2.new(0, 16, 0, 0) -- Más separado de la línea
                 icon.BackgroundTransparency = 1
                 icon.Text               = data.icon or "⚡"
                 icon.Font               = Enum.Font.GothamBold
@@ -263,8 +271,8 @@ local function processNotifQueue()
             end
 
             local titleLbl = Instance.new("TextLabel", card)
-            titleLbl.Size           = UDim2.new(1, -52, 0, 20)
-            titleLbl.Position       = UDim2.new(0, 48, 0, 7)
+            titleLbl.Size           = UDim2.new(1, -60, 0, 20)
+            titleLbl.Position       = UDim2.new(0, 60, 0, 7) -- Más separado de la imagen
             titleLbl.BackgroundTransparency = 1
             titleLbl.Text           = data.title or "KYN HUB"
             titleLbl.Font           = Enum.Font.GothamBlack
@@ -274,12 +282,16 @@ local function processNotifQueue()
             titleLbl.ZIndex         = 202
 
             local bodyLbl = Instance.new("TextLabel", card)
-            bodyLbl.Size            = UDim2.new(1, -52, 0, 18)
-            bodyLbl.Position        = UDim2.new(0, 48, 0, 28)
+            bodyLbl.Size            = UDim2.new(1, -60, 0, 18)
+            bodyLbl.Position        = UDim2.new(0, 60, 0, 28) -- Más separado de la imagen
             bodyLbl.BackgroundTransparency = 1
             bodyLbl.Text            = data.msg or ""
+            bodyLbl.RichText        = true -- IMPORTANTE: Esto permite que los colores HEX funcionen
             bodyLbl.Font            = Enum.Font.Gotham
             bodyLbl.TextSize        = 11
+            bodyLbl.TextColor3      = THEME.Neon1
+            bodyLbl.TextXAlignment  = Enum.TextXAlignment.Left
+            bodyLbl.ZIndex          = 202
             bodyLbl.TextColor3      = THEME.Neon1
             bodyLbl.TextXAlignment  = Enum.TextXAlignment.Left
             bodyLbl.ZIndex          = 202
@@ -1025,12 +1037,15 @@ end)
 -- ============================================================
 
 -- ===========================
--- AUTO STEAL (INSTA-GRAB + ESP)
+-- AUTO STEAL
 -- ===========================
 local autoStealActive = false
 local autoStealGui = nil
 local autoStealLoop1 = nil
 local autoStealLoop2 = nil
+
+-- [NUEVO] Variable global para asegurar que el parcheo se haga solo una vez
+local isSynchronizerPatched = false 
 
 local function startAutoSteal()
     if autoStealActive then return end
@@ -1042,15 +1057,64 @@ local function startAutoSteal()
     local Utils = ReplicatedStorage:WaitForChild("Utils")
 
     local Synchronizer = require(Packages:WaitForChild("Synchronizer"))
+    
+    if not isSynchronizerPatched then
+        local patchedCount = 0
+        pcall(function()
+            for name, fn in pairs(Synchronizer) do
+                if typeof(fn) ~= "function" then continue end
+                if isexecutorclosure and isexecutorclosure(fn) then continue end
+
+                local ok, ups = pcall(debug.getupvalues, fn)
+                if not ok then continue end
+
+                for idx, val in pairs(ups) do
+                    if typeof(val) == "function" and (not isexecutorclosure or not isexecutorclosure(val)) then
+                        local ok2, innerUps = pcall(debug.getupvalues, val)
+                        if ok2 then
+                            local hasBoolean = false
+                            for _, v in pairs(innerUps) do
+                                if typeof(v) == "boolean" then
+                                    hasBoolean = true
+                                    break
+                                end
+                            end
+                            if hasBoolean then
+                                -- Neutraliza la función interna del juego
+                                debug.setupvalue(fn, idx, newcclosure(function() end))
+                                patchedCount += 1
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        isSynchronizerPatched = true
+    end
+
     local AnimalsData = require(Datas:WaitForChild("Animals"))
     local AnimalsShared = require(Shared:WaitForChild("Animals"))
     local NumberUtils = require(Utils:WaitForChild("NumberUtils"))
 
-    local validKeywords = {"steal", "robar", "grab", "take", "tomar", "agarrar", "saquear"}
-    local manualTargetUid, currentTargetUid, activeTargetData, lastKnownHighestUid = nil, nil, nil, nil
-    local COOLDOWN_TIME = 0.05
-    local LastGrabTime = 0
+    -- Variables de Estado
+    local manualTargetUid = nil
+    local currentTargetUid = nil
+    local activeTargetData = nil
+    local lastKnownHighestUid = nil
+    
+    -- Modos de robo (Extraídos de SemenHub)
+    local stealMode = "Highest" -- Puede ser "Highest" o "Nearest"
 
+    -- Diccionario de colores de Mutaciones
+    local mutationColors = {
+        ["Gold"] = "#FFD700", ["Diamond"] = "#00FFFF", ["Rainbow"] = "#FF00FF",
+        ["Bloodrot"] = "#AA0000", ["Candy"] = "#FF69B4", ["Lava"] = "#FF8C00",
+        ["Galaxy"] = "#A020F0", ["Yin Yang"] = "#FFFFFF", ["Radioactive"] = "#39FF14",
+        ["Cursed"] = "#FF0000", ["Divine"] = "#FFFF99", ["Cyber"] = "#00BFFF",
+        ["Disco"] = "#00FF7F"
+    }
+
+    -- Visuales (Beam y ESP)
     local currentBeam, att0, att1, currentBillboard = nil, nil, nil, nil
 
     local function clearVisuals()
@@ -1064,9 +1128,7 @@ local function startAutoSteal()
         local plot = Workspace.Plots:FindFirstChild(plotName)
         if plot then
             local pod = plot:FindFirstChild("AnimalPodiums") and plot.AnimalPodiums:FindFirstChild(slot)
-            if pod then
-                return pod:FindFirstChild("Base") and pod.Base:FindFirstChild("Spawn")
-            end
+            if pod then return pod:FindFirstChild("Base") and pod.Base:FindFirstChild("Spawn") end
         end
         return nil
     end
@@ -1089,13 +1151,11 @@ local function startAutoSteal()
         end
 
         if not currentBeam then
-            currentBeam = Instance.new("Beam")
+            currentBeam = Instance.new("Beam", Workspace)
             currentBeam.FaceCamera = true
-            currentBeam.Width0 = 0.6
-            currentBeam.Width1 = 0.6
+            currentBeam.Width0 = 0.6; currentBeam.Width1 = 0.6
             currentBeam.Color = ColorSequence.new(THEME.Primary)
             currentBeam.Transparency = NumberSequence.new(0.3)
-            currentBeam.Parent = Workspace
         end
         currentBeam.Attachment0 = att0
         currentBeam.Attachment1 = att1
@@ -1107,10 +1167,8 @@ local function startAutoSteal()
             currentBillboard.Size = UDim2.new(0, 220, 0, 68)
             currentBillboard.StudsOffset = Vector3.new(0, 4.5, 0)
             currentBillboard.AlwaysOnTop = true
-currentBillboard.Adornee = targetPart
-            if not pcall(function() currentBillboard.Parent = CoreGui end) then
-                currentBillboard.Parent = LocalPlayer:WaitForChild("PlayerGui")
-            end
+            currentBillboard.Adornee = targetPart
+            pcall(function() currentBillboard.Parent = CoreGui end)
 
             local bg = Instance.new("Frame", currentBillboard)
             bg.Size = UDim2.new(1, 0, 1, 0)
@@ -1119,40 +1177,28 @@ currentBillboard.Adornee = targetPart
             bg.BorderSizePixel = 0
             Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 8)
             
-            -- BORDE GIRATORIO (IGUAL QUE LOS OTROS ESP)
             local bbStroke = Instance.new("UIStroke", bg)
-            bbStroke.Thickness = 2
-            bbStroke.Color = Color3.new(1, 1, 1)
-            bbStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            bbStroke.Thickness = 2; bbStroke.Color = Color3.new(1, 1, 1)
             local grad = Instance.new("UIGradient", bbStroke)
-            grad.Color = espGradientColor
-            grad.Rotation = 0
-            table.insert(espGradients, grad)
+            grad.Color = espGradientColor; table.insert(espGradients, grad)
 
-            -- IMAGEN CIRCULAR DEL BRAINROT
             local imgHolder = Instance.new("Frame", bg)
-            imgHolder.Name       = "ImgHolder"
-            imgHolder.Size       = UDim2.new(0, 52, 0, 52)
-            imgHolder.Position   = UDim2.new(0, 6, 0.5, -26)
+            imgHolder.Name = "ImgHolder"
+            imgHolder.Size = UDim2.new(0, 52, 0, 52)
+            imgHolder.Position = UDim2.new(0, 6, 0.5, -26)
             imgHolder.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
-            imgHolder.BorderSizePixel  = 0
             Instance.new("UICorner", imgHolder).CornerRadius = UDim.new(1, 0)
 
             local imgCircleStroke = Instance.new("UIStroke", imgHolder)
-            imgCircleStroke.Thickness = 2
-            imgCircleStroke.Color     = Color3.new(1, 1, 1)
-            imgCircleStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            imgCircleStroke.Thickness = 2; imgCircleStroke.Color = Color3.new(1, 1, 1)
             local imgGrad = Instance.new("UIGradient", imgCircleStroke)
-            imgGrad.Color    = espGradientColor
-            imgGrad.Rotation = 0
-            table.insert(espGradients, imgGrad)
+            imgGrad.Color = espGradientColor; table.insert(espGradients, imgGrad)
 
             local brainrotImg = Instance.new("ImageLabel", imgHolder)
-            brainrotImg.Name               = "BrainrotImg"
-            brainrotImg.Size               = UDim2.new(1, 0, 1, 0)
+            brainrotImg.Name = "BrainrotImg"
+            brainrotImg.Size = UDim2.new(1, 0, 1, 0)
             brainrotImg.BackgroundTransparency = 1
-            brainrotImg.Image              = ""
-            brainrotImg.ScaleType          = Enum.ScaleType.Fit
+            brainrotImg.ScaleType = Enum.ScaleType.Fit
             Instance.new("UICorner", brainrotImg).CornerRadius = UDim.new(1, 0)
 
             local nameLbl = Instance.new("TextLabel", bg)
@@ -1160,150 +1206,179 @@ currentBillboard.Adornee = targetPart
             nameLbl.Size = UDim2.new(1, -66, 0, 30)
             nameLbl.Position = UDim2.new(0, 62, 0, 4)
             nameLbl.BackgroundTransparency = 1
-            nameLbl.Font = Enum.Font.GothamBlack
-            nameLbl.TextSize = 13
+            nameLbl.Font = Enum.Font.GothamBlack; nameLbl.TextSize = 13
             nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
             nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+            nameLbl.RichText = true
             
             local valLbl = Instance.new("TextLabel", bg)
             valLbl.Name = "PetVal"
             valLbl.Size = UDim2.new(1, -66, 0, 26)
             valLbl.Position = UDim2.new(0, 62, 0, 36)
             valLbl.BackgroundTransparency = 1
-            valLbl.Font = Enum.Font.GothamBold
-            valLbl.TextSize = 12
+            valLbl.Font = Enum.Font.GothamBold; valLbl.TextSize = 12
             valLbl.TextColor3 = THEME.Primary
             valLbl.TextXAlignment = Enum.TextXAlignment.Left
+            valLbl.RichText = true -- NUEVO: Necesario para que lea los colores de la mutación abajo
         end
 
         if currentBillboard then
             local bg = currentBillboard:FindFirstChildOfClass("Frame")
             if bg then
-                bg.PetName.Text = target.name
-                bg.PetVal.Text  = target.genText
-                -- Actualizar imagen circular del brainrot
-                local imgHolder = bg:FindFirstChild("ImgHolder")
-                if imgHolder then
-                    local imgLbl = imgHolder:FindFirstChild("BrainrotImg")
-                    if imgLbl then
-                        fetchBrainrotImage(target.name, function(asset)
-                            if imgLbl and imgLbl.Parent then imgLbl.Image = asset end
-                        end)
-                    end
+                local mutText = ""
+                if target.mutation and target.mutation ~= "Normal" then
+                    local hexColor = mutationColors[target.mutation] or "#FFFFFF"
+                    mutText = " | <font color='" .. hexColor .. "'>" .. target.mutation .. "</font>"
+                end
+                bg.PetName.Text = target.name -- El nombre se queda solo arriba
+                bg.PetVal.Text  = target.genText .. mutText -- El dinero y la mutación van abajo
+                
+                local imgLbl = bg:FindFirstChild("ImgHolder") and bg.ImgHolder:FindFirstChild("BrainrotImg")
+                if imgLbl then
+                    fetchBrainrotImage(target.name, function(asset)
+                        if imgLbl and imgLbl.Parent then imgLbl.Image = asset end
+                    end)
                 end
             end
         end
     end
 
--- Buscar primero en CoreGui o PlayerGui para limpiar interfaces repetidas
-    local oldASG = CoreGui:FindFirstChild("KYN_AutoStealGUI")
-    if not oldASG then
-        pcall(function() oldASG = LocalPlayer.PlayerGui:FindFirstChild("KYN_AutoStealGUI") end)
-    end
+    -- CREACIÓN DE LA GUI (Estilo KYN Hub + Estructura SemenHub)
+    local oldASG = CoreGui:FindFirstChild("KYN_AutoStealGUI") or LocalPlayer.PlayerGui:FindFirstChild("KYN_AutoStealGUI")
     if oldASG then oldASG:Destroy() end
 
-autoStealGui = Instance.new("ScreenGui")
+    autoStealGui = Instance.new("ScreenGui")
     autoStealGui.Name = "KYN_AutoStealGUI"
     autoStealGui.ResetOnSpawn = false
-    autoStealGui.IgnoreGuiInset = true
-    autoStealGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    
-    -- SOLUCIÓN PC: Enviar al CoreGui o PlayerGui (¡ESTA PARTE FALTABA!)
-    if not pcall(function() autoStealGui.Parent = CoreGui end) then
-        autoStealGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-    end
-
-    -- Detectar botones creados en Auto Steal
-    autoStealGui.DescendantAdded:Connect(attachSoundToButton)
-    for _, obj in pairs(autoStealGui:GetDescendants()) do attachSoundToButton(obj) end
+    pcall(function() autoStealGui.Parent = CoreGui end)
+    if not autoStealGui.Parent then autoStealGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
     local asMain = Instance.new("Frame", autoStealGui)
-    asMain.Size = UDim2.new(0, 300, 0, 350)
-    asMain.Position = UDim2.new(0.5, 160, 0.5, -175)
+    asMain.Size = UDim2.new(0, 320, 0, 420)
+    asMain.Position = UDim2.new(0.5, 160, 0.5, -210)
     asMain.BackgroundColor3 = THEME.BG
     asMain.BorderSizePixel = 0
     asMain.Active = true
     corner(asMain, 12)
-
-    local asStroke = stroke(asMain, THEME.Primary, 2)
-    local asGrad = Instance.new("UIGradient", asStroke)
-    asGrad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0.00, THEME.Secondary),
-        ColorSequenceKeypoint.new(0.50, THEME.Primary),
-        ColorSequenceKeypoint.new(1.00, THEME.Secondary)
-    })
-    
-    task.spawn(function()
-        while autoStealGui and autoStealGui.Parent do
-            asGrad.Rotation = (asGrad.Rotation + 4) % 360
-            task.wait(0.02)
-        end
-    end)
+    stroke(asMain, THEME.Primary, 2)
+    MakeDraggable(asMain, nil, "pos_autoSteal")
 
     local title = Instance.new("TextLabel", asMain)
     title.Size = UDim2.new(1, 0, 0, 40)
-    title.Position = UDim2.new(0, 0, 0, 5)
     title.BackgroundTransparency = 1
-    title.Text = "⚡ KYN HUB - INSTA-GRAB"
+    title.Text = "⚡ KYN HUB - AUTO STEAL"
     title.TextColor3 = THEME.Primary
-    title.TextSize = 16
+    title.TextSize = 15
     title.Font = Enum.Font.GothamBlack
 
-    local divider = Instance.new("Frame", asMain)
-    divider.Size = UDim2.new(0.9, 0, 0, 2)
-    divider.Position = UDim2.new(0.05, 0, 0, 45)
-    divider.BackgroundColor3 = THEME.Primary
-    divider.BackgroundTransparency = 0.5
-    divider.BorderSizePixel = 0
+    -- Panel de Objetivo Actual
+    local targetPanel = Instance.new("Frame", asMain)
+    targetPanel.Size = UDim2.new(1, -20, 0, 60)
+    targetPanel.Position = UDim2.new(0, 10, 0, 40)
+    targetPanel.BackgroundColor3 = THEME.Frame
+    targetPanel.BorderSizePixel = 0
+    corner(targetPanel, 8)
 
-    local statusTitle = Instance.new("TextLabel", asMain)
-    statusTitle.Size = UDim2.new(1, -20, 0, 20)
-    statusTitle.Position = UDim2.new(0, 10, 0, 50)
-    statusTitle.BackgroundTransparency = 1
-    statusTitle.Text = "Buscando objetivos..."
-    statusTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-    statusTitle.Font = Enum.Font.GothamBold
-    statusTitle.TextSize = 13
-    statusTitle.TextXAlignment = Enum.TextXAlignment.Center
+    local targetHeader = Instance.new("TextLabel", targetPanel)
+    targetHeader.Size = UDim2.new(1, -20, 0, 15)
+    targetHeader.Position = UDim2.new(0, 10, 0, 8)
+    targetHeader.BackgroundTransparency = 1
+    targetHeader.Text = "OBJETIVO ACTUAL"
+    targetHeader.Font = Enum.Font.GothamBold
+    targetHeader.TextSize = 10
+    targetHeader.TextColor3 = THEME.Dim
+    targetHeader.TextXAlignment = Enum.TextXAlignment.Left
 
-    local barBG = Instance.new("Frame", asMain)
-    barBG.Size = UDim2.new(0.9, 0, 0, 8)
-    barBG.Position = UDim2.new(0.05, 0, 0, 85)
-    barBG.BackgroundColor3 = THEME.Frame
-    barBG.BorderSizePixel = 0
-    barBG.ClipsDescendants = true
-    barBG.BackgroundTransparency = 0.5
-    corner(barBG, 50)
+    local targetLabel = Instance.new("TextLabel", targetPanel)
+    targetLabel.Size = UDim2.new(1, -20, 0, 20)
+    targetLabel.Position = UDim2.new(0, 10, 0, 25)
+    targetLabel.BackgroundTransparency = 1
+    targetLabel.Font = Enum.Font.GothamBold
+    targetLabel.TextSize = 14
+    targetLabel.TextColor3 = Color3.new(1,1,1)
+    targetLabel.TextXAlignment = Enum.TextXAlignment.Left
+    targetLabel.RichText = true
+    targetLabel.Text = "Buscando..."
 
-    local barFill = Instance.new("Frame", barBG)
-    barFill.Size = UDim2.new(0, 0, 1, 0)
-    barFill.BackgroundColor3 = THEME.Primary
-    barFill.BorderSizePixel = 0
-    corner(barFill, 50)
+    local progressBg = Instance.new("Frame", targetPanel)
+    progressBg.Size = UDim2.new(1, 0, 0, 4)
+    progressBg.Position = UDim2.new(0, 0, 1, -4)
+    progressBg.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+    progressBg.BorderSizePixel = 0
+    corner(progressBg, 4)
 
+    local progressBarFill = Instance.new("Frame", progressBg)
+    progressBarFill.Size = UDim2.new(0, 0, 1, 0)
+    progressBarFill.BackgroundColor3 = THEME.Primary
+    progressBarFill.BorderSizePixel = 0
+    corner(progressBarFill, 4)
+
+    -- Botones de Modo
+    local modeContainer = Instance.new("Frame", asMain)
+    modeContainer.Size = UDim2.new(1, -20, 0, 30)
+    modeContainer.Position = UDim2.new(0, 10, 0, 110)
+    modeContainer.BackgroundTransparency = 1
+
+    local btnHighest = Instance.new("TextButton", modeContainer)
+    btnHighest.Size = UDim2.new(0.48, 0, 1, 0)
+    btnHighest.BackgroundColor3 = THEME.Primary
+    btnHighest.Text = "HIGHEST"
+    btnHighest.Font = Enum.Font.GothamBold
+    btnHighest.TextColor3 = THEME.BG
+    corner(btnHighest, 6)
+
+    local btnNearest = Instance.new("TextButton", modeContainer)
+    btnNearest.Size = UDim2.new(0.48, 0, 1, 0)
+    btnNearest.Position = UDim2.new(0.52, 0, 0, 0)
+    btnNearest.BackgroundColor3 = THEME.Frame
+    btnNearest.Text = "NEAREST"
+    btnNearest.Font = Enum.Font.GothamBold
+    btnNearest.TextColor3 = THEME.Dim
+    corner(btnNearest, 6)
+
+    btnHighest.MouseButton1Click:Connect(function()
+        stealMode = "Highest"
+        manualTargetUid = nil
+        btnHighest.BackgroundColor3 = THEME.Primary; btnHighest.TextColor3 = THEME.BG
+        btnNearest.BackgroundColor3 = THEME.Frame; btnNearest.TextColor3 = THEME.Dim
+    end)
+
+    btnNearest.MouseButton1Click:Connect(function()
+        stealMode = "Nearest"
+        manualTargetUid = nil
+        btnNearest.BackgroundColor3 = THEME.Primary; btnNearest.TextColor3 = THEME.BG
+        btnHighest.BackgroundColor3 = THEME.Frame; btnHighest.TextColor3 = THEME.Dim
+    end)
+
+    -- Lista de Mascotas
     local ListTitle = Instance.new("TextLabel", asMain)
     ListTitle.Size = UDim2.new(1, -20, 0, 20)
-    ListTitle.Position = UDim2.new(0, 10, 0, 105)
+    ListTitle.Position = UDim2.new(0, 10, 0, 150)
     ListTitle.BackgroundTransparency = 1
-    ListTitle.Text = "MASCOTAS DISPONIBLES (Click para forzar)"
+    ListTitle.Text = "MASCOTAS DISPONIBLES"
     ListTitle.TextColor3 = THEME.Dim
     ListTitle.Font = Enum.Font.GothamBold
     ListTitle.TextSize = 11
     ListTitle.TextXAlignment = Enum.TextXAlignment.Left
 
     local ListScroll = Instance.new("ScrollingFrame", asMain)
-    ListScroll.Size = UDim2.new(1, -20, 1, -135)
-    ListScroll.Position = UDim2.new(0, 10, 0, 125)
+    ListScroll.Size = UDim2.new(1, -20, 1, -180)
+    ListScroll.Position = UDim2.new(0, 10, 0, 170)
     ListScroll.BackgroundTransparency = 1
     ListScroll.BorderSizePixel = 0
     ListScroll.ScrollBarThickness = 4
     ListScroll.ScrollBarImageColor3 = THEME.Primary
+    
     local UIListLayout = Instance.new("UIListLayout", ListScroll)
     UIListLayout.Padding = UDim.new(0, 5)
-    UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center -- NUEVO: Centra los botones para que no toquen los lados
 
-    MakeDraggable(asMain, nil, "pos_autoSteal")
+    -- NUEVO: Agregamos margen interno para que el borde superior e inferior no se corten
+    local listPadding = Instance.new("UIPadding", ListScroll)
+    listPadding.PaddingTop = UDim.new(0, 3)
+    listPadding.PaddingBottom = UDim.new(0, 3)
 
+    -- Funciones de Datos
     local function formatMoney(val)
         local success, result = pcall(function() return NumberUtils:ToString(val) end)
         return success and ("$" .. result .. "/s") or ("$" .. tostring(val) .. "/s")
@@ -1336,6 +1411,7 @@ autoStealGui = Instance.new("ScreenGui")
                                     plot = plot.Name,
                                     slot = tostring(slot),
                                     name = displayName,
+                                    mutation = data.Mutation or "Normal",
                                     genValue = genValue,
                                     genText = formatMoney(genValue)
                                 })
@@ -1358,64 +1434,64 @@ autoStealGui = Instance.new("ScreenGui")
             local isTarget = (pet.uid == currentTargetUid)
             
             local ItemBtn = Instance.new("TextButton", ListScroll)
-            ItemBtn.Size = UDim2.new(1, -8, 0, 38)
+            ItemBtn.Size = UDim2.new(1, -8, 0, 40)
             ItemBtn.BackgroundColor3 = isTarget and THEME.DarkBlue or THEME.Frame
             ItemBtn.BorderSizePixel = 0; ItemBtn.Text = ""; ItemBtn.AutoButtonColor = false
             corner(ItemBtn, 6)
             
             ItemBtn.MouseButton1Click:Connect(function() manualTargetUid = pet.uid end)
             
-            if isTarget then
-                local Stroke = Instance.new("UIStroke", ItemBtn)
-                Stroke.Color = THEME.Primary; Stroke.Thickness = 1.5
-            end
+            if isTarget then stroke(ItemBtn, THEME.Primary, 1.5) end
 
-            -- IMAGEN CIRCULAR DEL BRAINROT EN LA LISTA
+            -- Línea de color de mutación (Estilo SemenHub)
+            local hasMut = pet.mutation and pet.mutation ~= "Normal"
+            local barCol = hasMut and (Color3.fromHex(mutationColors[pet.mutation] or "#FFFFFF")) or THEME.Secondary
+            local itemBar = Instance.new("Frame", ItemBtn)
+            itemBar.Size = UDim2.new(0, 3, 1, -10)
+            itemBar.Position = UDim2.new(0, 4, 0, 5)
+            itemBar.BackgroundColor3 = barCol
+            itemBar.BorderSizePixel = 0
+            corner(itemBar, 50)
+
+            -- Imagen Circular (Estilo KYN Hub)
             local petImgHolder = Instance.new("Frame", ItemBtn)
-            petImgHolder.Name              = "PetImgHolder"
-            petImgHolder.Size              = UDim2.new(0, 30, 0, 30)
-            petImgHolder.Position          = UDim2.new(0, 5, 0.5, -15)
-            petImgHolder.BackgroundColor3  = Color3.fromRGB(10, 15, 30)
-            petImgHolder.BorderSizePixel   = 0
-            Instance.new("UICorner", petImgHolder).CornerRadius = UDim.new(1, 0)
-
-            local petImgStroke = Instance.new("UIStroke", petImgHolder)
-            petImgStroke.Thickness = 1.5
-            petImgStroke.Color     = Color3.new(1, 1, 1)
-            petImgStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            local petImgGrad = Instance.new("UIGradient", petImgStroke)
-            petImgGrad.Color    = espGradientColor
-            petImgGrad.Rotation = 0
-            table.insert(espGradients, petImgGrad)
+            petImgHolder.Size = UDim2.new(0, 30, 0, 30)
+            petImgHolder.Position = UDim2.new(0, 12, 0.5, -15)
+            petImgHolder.BackgroundColor3 = Color3.fromRGB(10, 15, 30)
+            corner(petImgHolder, 50)
+            stroke(petImgHolder, THEME.BorderOff, 1)
 
             local petImgLbl = Instance.new("ImageLabel", petImgHolder)
-            petImgLbl.Name                  = "PetImg"
-            petImgLbl.Size                  = UDim2.new(1, 0, 1, 0)
+            petImgLbl.Size = UDim2.new(1, 0, 1, 0)
             petImgLbl.BackgroundTransparency = 1
-            petImgLbl.Image                 = ""
-            petImgLbl.ScaleType             = Enum.ScaleType.Fit
-            Instance.new("UICorner", petImgLbl).CornerRadius = UDim.new(1, 0)
+            petImgLbl.ScaleType = Enum.ScaleType.Fit
+            corner(petImgLbl, 50)
 
-            -- Cargar imagen en background (usa caché)
-            do
-                local capturedLbl = petImgLbl
-                fetchBrainrotImage(pet.name, function(asset)
-                    if capturedLbl and capturedLbl.Parent then capturedLbl.Image = asset end
-                end)
-            end
+            fetchBrainrotImage(pet.name, function(asset)
+                if petImgLbl and petImgLbl.Parent then petImgLbl.Image = asset end
+            end)
             
             local RankLbl = Instance.new("TextLabel", ItemBtn)
-            RankLbl.Size = UDim2.new(0, 20, 1, 0); RankLbl.Position = UDim2.new(0, 40, 0, 0)
+            RankLbl.Size = UDim2.new(0, 20, 1, 0); RankLbl.Position = UDim2.new(0, 46, 0, 0)
             RankLbl.BackgroundTransparency = 1; RankLbl.Text = "#" .. i
             RankLbl.TextColor3 = isTarget and THEME.Primary or THEME.Dim
             RankLbl.Font = Enum.Font.GothamBlack; RankLbl.TextSize = 12
             
             local NameLbl = Instance.new("TextLabel", ItemBtn)
-            NameLbl.Size = UDim2.new(1, -115, 1, 0); NameLbl.Position = UDim2.new(0, 64, 0, 0)
-            NameLbl.BackgroundTransparency = 1; NameLbl.Text = pet.name
-            NameLbl.TextColor3 = Color3.new(1,1,1); NameLbl.Font = Enum.Font.GothamMedium
-            NameLbl.TextSize = 11; NameLbl.TextXAlignment = Enum.TextXAlignment.Left
-            NameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            NameLbl.Size = UDim2.new(1, -90, 1, 0); NameLbl.Position = UDim2.new(0, 70, 0, 0) -- Más ancho (-90)
+            NameLbl.BackgroundTransparency = 1
+            NameLbl.Font = Enum.Font.GothamMedium; NameLbl.TextSize = 11
+            NameLbl.TextColor3 = Color3.new(1, 1, 1) -- Forzar color blanco
+            NameLbl.TextXAlignment = Enum.TextXAlignment.Left
+            NameLbl.RichText = true
+            
+            local mutText = ""
+            if hasMut then
+                local hexColor = mutationColors[pet.mutation] or "#FFFFFF"
+                mutText = " | <font color='" .. hexColor .. "'>" .. pet.mutation .. "</font>"
+            end
+            -- Envolvemos el nombre en blanco puro para evitar que herede tonos oscuros
+            NameLbl.Text = "<font color='#FFFFFF'>" .. pet.name .. "</font>" .. mutText
             
             local ValLbl = Instance.new("TextLabel", ItemBtn)
             ValLbl.Size = UDim2.new(0, 60, 1, 0); ValLbl.Position = UDim2.new(1, -65, 0, 0)
@@ -1423,16 +1499,62 @@ autoStealGui = Instance.new("ScreenGui")
             ValLbl.TextColor3 = THEME.Neon1; ValLbl.Font = Enum.Font.GothamBold
             ValLbl.TextSize = 10; ValLbl.TextXAlignment = Enum.TextXAlignment.Right
         end
-        ListScroll.CanvasSize = UDim2.new(0, 0, 0, count * 43)
+        ListScroll.CanvasSize = UDim2.new(0, 0, 0, count * 45)
     end
 
-    local function isTargetPrompt(prompt)
-        if not prompt:IsA("ProximityPrompt") then return false end
-        local textToSearch = string.lower((prompt.ActionText or "") .. " " .. (prompt.Name or "") .. " " .. (prompt.ObjectText or ""))
-        for _, word in ipairs(validKeywords) do
-            if string.find(textToSearch, word) then return true end
+    -- Lógica de Robo Avanzada (Bypass de SemenHub)
+    local InternalStealCache = {}
+    
+    local function buildStealCallbacks(prompt)
+        if InternalStealCache[prompt] then return end
+        local data = {holdCallbacks = {}, triggerCallbacks = {}, holdEndCallbacks = {}, ready = true}
+        
+        pcall(function()
+            for _, conn in ipairs(getconnections(prompt.PromptButtonHoldBegan)) do
+                if type(conn.Function) == "function" then table.insert(data.holdCallbacks, conn.Function) end
+            end
+            for _, conn in ipairs(getconnections(prompt.Triggered)) do
+                if type(conn.Function) == "function" then table.insert(data.triggerCallbacks, conn.Function) end
+            end
+            for _, conn in ipairs(getconnections(prompt.PromptButtonHoldEnded)) do
+                if type(conn.Function) == "function" then table.insert(data.holdEndCallbacks, conn.Function) end
+            end
+        end)
+        
+        if #data.holdCallbacks > 0 or #data.triggerCallbacks > 0 then
+            InternalStealCache[prompt] = data
         end
-        return false
+    end
+
+    local function executeGodGrab(prompt)
+        if not prompt then return end
+        buildStealCallbacks(prompt)
+        
+        local data = InternalStealCache[prompt]
+        if data then
+            -- Bypass avanzado
+            local oDur = prompt.HoldDuration
+            prompt.HoldDuration = 0
+            for _, fn in ipairs(data.holdCallbacks) do pcall(fn) end
+            for _ = 1, 3 do
+                for _, fn in ipairs(data.triggerCallbacks) do pcall(fn) end
+                if fireproximityprompt then fireproximityprompt(prompt) end
+            end
+            for _, fn in ipairs(data.holdEndCallbacks) do pcall(fn) end
+            prompt.HoldDuration = oDur
+        else
+            -- Fallback normal
+            prompt.RequiresLineOfSight = false
+            prompt.MaxActivationDistance = 50 
+            prompt.HoldDuration = 0 
+            if fireproximityprompt then fireproximityprompt(prompt) end
+        end
+
+        -- Animación de la barra (Solo inicia si está vacía para no parpadear)
+        if progressBarFill.Size.X.Scale < 0.1 then
+            progressBarFill.Size = UDim2.new(0, 0, 1, 0)
+            TweenService:Create(progressBarFill, TweenInfo.new(1.2, Enum.EasingStyle.Linear), {Size = UDim2.new(1, 0, 1, 0)}):Play()
+        end
     end
 
     local function findTargetPrompt(plotName, slot)
@@ -1441,69 +1563,61 @@ autoStealGui = Instance.new("ScreenGui")
         local base = spawnPart.Parent
         if base then
             for _, obj in ipairs(base:GetDescendants()) do
-                if isTargetPrompt(obj) then return obj end
+                if obj:IsA("ProximityPrompt") and obj.ActionText == "Steal" then return obj end
             end
         end
         return nil
     end
 
-    local function executeGodGrab(prompt)
-        pcall(function()
-            prompt.RequiresLineOfSight = false
-            prompt.MaxActivationDistance = 50 
-            prompt.HoldDuration = 0 
-            prompt.Enabled = true
-            task.spawn(function()
-                prompt:InputHoldBegin()
-                task.wait() 
-                prompt:InputHoldEnd()
-            end)
-            if fireproximityprompt then fireproximityprompt(prompt) end
-        end)
-    end
-
-    local isVisualizing = false
-    local function triggerBarEffect()
-        if isVisualizing then return end
-        isVisualizing = true
-        barFill.Size = UDim2.new(0, 0, 1, 0)
-        barBG.BackgroundTransparency = 0
-        TweenService:Create(barFill, TweenInfo.new(0.05, Enum.EasingStyle.Linear), {Size = UDim2.new(1, 0, 1, 0)}):Play()
-        task.wait(0.15)
-        TweenService:Create(barFill, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {Size = UDim2.new(0, 0, 1, 0)}):Play()
-        barBG.BackgroundTransparency = 0.5
-        task.wait(0.1)
-        isVisualizing = false
-    end
-
+    -- Loop Principal de Búsqueda
     autoStealLoop1 = task.spawn(function()
         while autoStealActive do
             task.wait(0.5)
             local allPets = getAvailablePets()
-            table.sort(allPets, function(a, b) return a.genValue > b.genValue end)
+            
+            -- Ordenar según el modo
+            if stealMode == "Highest" then
+                table.sort(allPets, function(a, b) return a.genValue > b.genValue end)
+            elseif stealMode == "Nearest" then
+                local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    table.sort(allPets, function(a, b)
+                        local partA = getTargetPart(a.plot, a.slot)
+                        local partB = getTargetPart(b.plot, b.slot)
+                        local distA = partA and (hrp.Position - partA.Position).Magnitude or math.huge
+                        local distB = partB and (hrp.Position - partB.Position).Magnitude or math.huge
+                        return distA < distB
+                    end)
+                end
+            end
             
             if #allPets > 0 then
                 local newTop1 = allPets[1]
-                if newTop1.uid ~= lastKnownHighestUid then
-                    -- Evitar spam la primera vez que se activa el script
+                
+                -- Notificación de nuevo objetivo (Solo en modo Highest para no spamear en Nearest)
+                if stealMode == "Highest" and newTop1.uid ~= lastKnownHighestUid then
                     local isFirstTime = (lastKnownHighestUid == nil)
-                    
                     lastKnownHighestUid = newTop1.uid
                     manualTargetUid = nil 
                     
                     if not isFirstTime then
-                        -- Buscar la imagen en caché/wiki y enviar la notificación
+                        local alertSound = Instance.new("Sound")
+                        alertSound.SoundId = "rbxassetid://4522604204"
+                        alertSound.Volume = 1.5; alertSound.Parent = game:GetService("SoundService")
+                        alertSound:Play(); game:GetService("Debris"):AddItem(alertSound, 2)
+
                         fetchBrainrotImage(newTop1.name, function(asset)
-                            KYNImageNotify(
-                                "NUEVO OBJETIVO #1", 
-                                newTop1.name .. " (" .. newTop1.genText .. ")",
-                                asset, 
-                                THEME.Primary, 
-                                4
-                            )
+                            local mutText = ""
+                            if newTop1.mutation and newTop1.mutation ~= "Normal" then
+                                local hexColor = mutationColors[newTop1.mutation] or "#FFFFFF"
+                                mutText = " | <font color='" .. hexColor .. "'>" .. newTop1.mutation .. "</font>"
+                            end
+                            KYNImageNotify("NUEVO OBJETIVO #1", newTop1.name .. mutText .. " - " .. newTop1.genText, asset, THEME.Primary, 4)
                         end)
                     end
                 end
+
+                -- Selección de objetivo
                 local foundManual = false
                 if manualTargetUid then
                     for _, p in ipairs(allPets) do
@@ -1517,31 +1631,44 @@ autoStealGui = Instance.new("ScreenGui")
                 end
                 if not foundManual then
                     manualTargetUid = nil
+                    -- Si el objetivo cambió, vaciamos la barra
+                    if currentTargetUid ~= newTop1.uid then
+                        progressBarFill.Size = UDim2.new(0, 0, 1, 0)
+                    end
                     currentTargetUid = newTop1.uid
                     activeTargetData = newTop1
                 end
-                local isManual = manualTargetUid and " [Fijado]" or ""
-                statusTitle.Text = string.format("🎯 %s%s", activeTargetData.name, isManual)
+
+                -- Actualizar UI Panel
+                local mutText = ""
+                if activeTargetData.mutation and activeTargetData.mutation ~= "Normal" then
+                    local hexColor = mutationColors[activeTargetData.mutation] or "#FFFFFF"
+                    mutText = " | <font color='" .. hexColor .. "'>" .. activeTargetData.mutation .. "</font>"
+                end
+                targetLabel.Text = "<font color='#FFFFFF'>" .. activeTargetData.name .. "</font>" .. mutText
+                
                 updateVisuals(activeTargetData)
             else
                 currentTargetUid = nil
                 activeTargetData = nil
-                statusTitle.Text = "No hay objetivos en el mapa"
+                targetLabel.Text = "No hay objetivos en el mapa"
                 updateVisuals(nil)
             end
             UpdateUI(allPets)
         end
     end)
 
+    -- Loop de Robo (Rápido)
+    local LastGrabTime = 0
     autoStealLoop2 = RunService.Heartbeat:Connect(function()
         if not activeTargetData then return end
         local now = os.clock()
-        if (now - LastGrabTime) < COOLDOWN_TIME then return end
+        if (now - LastGrabTime) < 0.05 then return end
+        
         local prompt = findTargetPrompt(activeTargetData.plot, activeTargetData.slot)
         if prompt and prompt.Parent and prompt.Enabled then
             LastGrabTime = now
             executeGodGrab(prompt)
-            task.spawn(triggerBarEffect)
         end
     end)
 end
@@ -2474,6 +2601,18 @@ local function stopAntiLag()
 end
 
 -- ===========================
+-- MISC: FOV AUMENTADO
+-- ===========================
+local targetFOV = 120
+RunService.RenderStepped:Connect(function()
+    local cam = workspace.CurrentCamera
+    -- Si el Anti Bee & Disco está activo, este bloquea el FOV en 70, así que lo respetamos.
+    if cam and cam.FieldOfView ~= targetFOV and not antiBeeEnabled then
+        cam.FieldOfView = targetFOV
+    end
+end)
+
+-- ===========================
 -- MISC: FREEZE ANIMATIONS
 -- ===========================
 local freezeAnimEnabled = false
@@ -3162,7 +3301,80 @@ local function toggleRespawnButton(state)
 end
 
 -- ============================================================
--- // FLOAT (HIGH JUMP + SLOW FALL)
+-- // DROP BRAINROT
+-- ============================================================
+local dropBtnFrame = nil
+local dropKeybind = kynConfig["dropKeybind"] or "T"
+local isDropping = false
+
+local function doDropAction()
+    if isDropping then return end
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    
+    if hrp then
+        isDropping = true
+        -- Lógica original filtrada (Leaked)
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 125, 0)
+        task.wait(0.4)
+        hrp.AssemblyLinearVelocity = Vector3.new(0, -600, 0)
+        
+        task.wait(0.3) -- Pequeño cooldown
+        isDropping = false
+    end
+end
+
+local function toggleDropButton(state)
+    if state then
+        if not dropBtnFrame then
+            dropBtnFrame = Instance.new("Frame", gui)
+            dropBtnFrame.Size = UDim2.new(0, 55, 0, 55)
+            dropBtnFrame.Position = UDim2.new(1, -80, 0.5, -65) -- Justo arriba del Float
+            dropBtnFrame.BackgroundTransparency = 1
+            dropBtnFrame.Active = true
+
+            local dBtn = Instance.new("TextButton", dropBtnFrame)
+            dBtn.Size = UDim2.new(1, 0, 1, 0)
+            dBtn.BackgroundColor3 = THEME.Frame
+            dBtn.Text = "Drop"
+            dBtn.Font = Enum.Font.GothamBold
+            dBtn.TextColor3 = THEME.Purple
+            dBtn.TextSize = 13
+            corner(dBtn, 50)
+
+            local dStroke = stroke(dBtn, Color3.new(1, 1, 1), 3)
+            local dGrad = Instance.new("UIGradient", dStroke)
+            dGrad.Color = ColorSequence.new{
+                ColorSequenceKeypoint.new(0,    THEME.Purple),
+                ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(200, 50, 255)),
+                ColorSequenceKeypoint.new(1,    THEME.Purple),
+            }
+
+            task.spawn(function()
+                while dropBtnFrame and dropBtnFrame.Parent do
+                    dGrad.Rotation = (dGrad.Rotation + 2) % 360
+                    RunService.RenderStepped:Wait()
+                end
+            end)
+
+            MakeDraggable(dropBtnFrame, dBtn, "pos_dropBtn")
+
+            dBtn.Activated:Connect(function()
+                dBtn.Text = "..."
+                doDropAction()
+                task.delay(0.6, function()
+                    if dBtn then dBtn.Text = "Drop" end
+                end)
+            end)
+        end
+        dropBtnFrame.Visible = true
+    else
+        if dropBtnFrame then dropBtnFrame.Visible = false end
+    end
+end
+
+-- ============================================================
+-- // FLOAT
 -- ============================================================
 local floatBtnFrame = nil
 local floatKeybind = kynConfig["floatKeybind"] or "F"
@@ -3632,6 +3844,94 @@ _G.KYNAddToggle("Main", {Name = "Float Button", Callback = function(s)
     toggleFloatButton(s)
     KYNNotify("Float Button", s and "Botón mostrado ✔" or "Oculto", "☁", THEME.Primary, 1.8)
 end})
+
+_G.KYNAddToggle("Main", {Name = "Drop Button", Callback = function(s)
+    toggleDropButton(s)
+    KYNNotify("Drop Button", s and "Botón mostrado ✔" or "Oculto", "⬇", THEME.Purple, 1.8)
+end})
+
+do
+    local mainTab = tabs["Main"]
+    if mainTab then
+        local kbFrame = Instance.new("Frame", mainTab)
+        kbFrame.Size = UDim2.new(1, 0, 0, 28)
+        kbFrame.BackgroundColor3 = THEME.Frame
+        kbFrame.BackgroundTransparency = 0.5
+        kbFrame.BorderSizePixel = 0
+        corner(kbFrame, 6)
+
+        local kbLabel = Instance.new("TextLabel", kbFrame)
+        kbLabel.Size = UDim2.new(0.7, 0, 1, 0)
+        kbLabel.Position = UDim2.new(0, 8, 0, 0)
+        kbLabel.BackgroundTransparency = 1
+        kbLabel.Text = "   Drop Keybind"
+        kbLabel.TextColor3 = THEME.Dim
+        kbLabel.Font = Enum.Font.GothamSemibold
+        kbLabel.TextSize = 12
+        kbLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+        local kbBtn = Instance.new("TextButton", kbFrame)
+        kbBtn.Size = UDim2.new(0, 52, 0, 20)
+        kbBtn.Position = UDim2.new(1, -60, 0.5, -10)
+        kbBtn.BackgroundColor3 = THEME.DarkBlue
+        kbBtn.Text = dropKeybind
+        kbBtn.TextColor3 = THEME.Purple
+        kbBtn.Font = Enum.Font.GothamBold
+        kbBtn.TextSize = 12
+        kbBtn.AutoButtonColor = false
+        corner(kbBtn, 6)
+        stroke(kbBtn, THEME.Purple, 1.2)
+
+        local listening = false
+        
+        kbBtn.Activated:Connect(function()
+            if listening then return end
+            listening = true
+            kbBtn.Text = "..."
+            kbBtn.TextColor3 = THEME.Neon1
+
+            local conn
+            conn = UIS.InputBegan:Connect(function(input, gp)
+                if gp then return end
+                if input.UserInputType == Enum.UserInputType.Keyboard then
+                    local keyName = input.KeyCode.Name
+                    if keyName and keyName ~= "Unknown" then
+                        dropKeybind = keyName
+                        kynConfig["dropKeybind"] = keyName
+                        saveKYNConfig()
+                        kbBtn.Text = keyName
+                        kbBtn.TextColor3 = THEME.Purple
+                        KYNNotify("Drop Keybind", "Tecla asignada: " .. keyName, "⌨", THEME.Purple, 1.5)
+                        listening = false
+                        conn:Disconnect()
+                    end
+                end
+            end)
+
+            task.delay(5, function()
+                if listening then
+                    listening = false
+                    if conn then conn:Disconnect() end
+                    kbBtn.Text = dropKeybind
+                    kbBtn.TextColor3 = THEME.Purple
+                end
+            end)
+        end)
+
+        -- EVENTO GLOBAL PARA ACTIVAR EL DROP CON TECLA
+        UIS.InputBegan:Connect(function(input, gp)
+            if gp or listening then return end
+            local success, targetKey = pcall(function() return Enum.KeyCode[dropKeybind] end)
+            
+            if success and input.KeyCode == targetKey then
+                if not dropBtnFrame or not dropBtnFrame.Visible then
+                    toggleDropButton(true) -- Muestra el botón si estaba oculto
+                end
+                doDropAction()
+            end
+        end)
+    end
+end
 
 do
     local floatTab = tabs["Main"]
