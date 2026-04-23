@@ -1114,44 +1114,60 @@ function startAutoSteal()
         ["Disco"] = "#00FF7F"
     }
 
-    -- Visuales (Beam y ESP)
+-- Visuales (Beam y ESP)
     local currentBeam, att0, att1, currentBillboard = nil, nil, nil, nil
 
-    local function clearVisuals()
-        if currentBeam then currentBeam:Destroy() currentBeam = nil end
-        if att0 then att0:Destroy() att0 = nil end
-        if att1 then att1:Destroy() att1 = nil end
-        if currentBillboard then currentBillboard:Destroy() currentBillboard = nil end
-    end
-
+    -- [CORRECCIÓN] Esta es la función que borraste por accidente
     local function getTargetPart(plotName, slot)
-        local plot = Workspace.Plots:FindFirstChild(plotName)
-        if plot then
-            local pod = plot:FindFirstChild("AnimalPodiums") and plot.AnimalPodiums:FindFirstChild(slot)
-            if pod then return pod:FindFirstChild("Base") and pod.Base:FindFirstChild("Spawn") end
+        local plots = Workspace:FindFirstChild("Plots")
+        if not plots then return nil end
+        local plot = plots:FindFirstChild(plotName)
+        if not plot then return nil end
+        
+        local podiums = plot:FindFirstChild("AnimalPodiums")
+        if podiums then
+            local podium = podiums:FindFirstChild(tostring(slot))
+            if podium then
+                local base = podium:FindFirstChild("Base")
+                if base then
+                    return base:FindFirstChild("Main") or base:FindFirstChildWhichIsA("BasePart")
+                end
+                return podium:FindFirstChildWhichIsA("BasePart", true)
+            end
         end
         return nil
     end
 
-    local function updateVisuals(target)
+    local function clearVisuals()
+        if currentBeam then pcall(function() currentBeam:Destroy() end) currentBeam = nil end
+        if att0 then pcall(function() att0:Destroy() end) att0 = nil end
+        if att1 then pcall(function() att1:Destroy() end) att1 = nil end
+        if currentBillboard then pcall(function() currentBillboard:Destroy() end) currentBillboard = nil end
+    end
+
+local function updateVisuals(target)
         if not target then clearVisuals() return end
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local targetPart = getTargetPart(target.plot, target.slot)
 
+        -- Si el jugador muere (hrp es nil), limpiamos los visuales. 
+        -- El loop principal los volverá a crear automáticamente al reaparecer.
         if not hrp or not targetPart then clearVisuals() return end
 
         if not att0 or att0.Parent ~= hrp then
-            if att0 then att0:Destroy() end
+            if att0 then pcall(function() att0:Destroy() end) end
             att0 = Instance.new("Attachment", hrp)
         end
         if not att1 or att1.Parent ~= targetPart then
-            if att1 then att1:Destroy() end
+            if att1 then pcall(function() att1:Destroy() end) end
             att1 = Instance.new("Attachment", targetPart)
         end
 
-        if not currentBeam then
+        if not currentBeam or not currentBeam.Parent then
+            if currentBeam then pcall(function() currentBeam:Destroy() end) end
             currentBeam = Instance.new("Beam", Workspace)
+            currentBeam.Name = "KYN_AutoStealBeam" -- Le damos nombre para borrarlo fácil al apagar
             currentBeam.FaceCamera = true
             currentBeam.Width0 = 0.6; currentBeam.Width1 = 0.6
             currentBeam.Color = ColorSequence.new(THEME.Primary)
@@ -1219,7 +1235,7 @@ function startAutoSteal()
             valLbl.Font = Enum.Font.GothamBold; valLbl.TextSize = 12
             valLbl.TextColor3 = THEME.Primary
             valLbl.TextXAlignment = Enum.TextXAlignment.Left
-            valLbl.RichText = true -- NUEVO: Necesario para que lea los colores de la mutación abajo
+            valLbl.RichText = true
         end
 
         if currentBillboard then
@@ -1230,8 +1246,8 @@ function startAutoSteal()
                     local hexColor = mutationColors[target.mutation] or "#FFFFFF"
                     mutText = " | <font color='" .. hexColor .. "'>" .. target.mutation .. "</font>"
                 end
-                bg.PetName.Text = target.name -- El nombre se queda solo arriba
-                bg.PetVal.Text  = target.genText .. mutText -- El dinero y la mutación van abajo
+                bg.PetName.Text = target.name
+                bg.PetVal.Text  = target.genText .. mutText
                 
                 local imgLbl = bg:FindFirstChild("ImgHolder") and bg.ImgHolder:FindFirstChild("BrainrotImg")
                 if imgLbl then
@@ -1602,7 +1618,7 @@ function startAutoSteal()
                     
                     if not isFirstTime then
                         local alertSound = Instance.new("Sound")
-                        alertSound.SoundId = "rbxassetid://4522604204"
+                        alertSound.SoundId = "rbxassetid://1788243907"
                         alertSound.Volume = 1.5; alertSound.Parent = game:GetService("SoundService")
                         alertSound:Play(); game:GetService("Debris"):AddItem(alertSound, 2)
 
@@ -1676,22 +1692,26 @@ end
 local function stopAutoSteal()
     autoStealActive = false
     if autoStealLoop1 then task.cancel(autoStealLoop1); autoStealLoop1 = nil end
+    if autoStealCharConn then autoStealCharConn:Disconnect(); autoStealCharConn = nil end
     if autoStealLoop2 then autoStealLoop2:Disconnect(); autoStealLoop2 = nil end
     if autoStealGui then autoStealGui:Destroy(); autoStealGui = nil end
+    
     for _, v in pairs(CoreGui:GetChildren()) do
         if v.Name == "AutoGrabESP" then v:Destroy() end
     end
+    
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("HumanoidRootPart") then
         for _, v in pairs(char.HumanoidRootPart:GetChildren()) do
             if v:IsA("Attachment") then v:Destroy() end
         end
     end
+    
+    -- Borramos el Beam por su nombre específico
     for _, v in pairs(Workspace:GetChildren()) do
-        if v:IsA("Beam") then v:Destroy() end
+        if v.Name == "KYN_AutoStealBeam" then v:Destroy() end
     end
 end
-
 
 -- ===========================
 -- VISUAL: ESP PLAYER
@@ -2136,54 +2156,178 @@ local function stopESPMine()
 end
 
 -- ===========================
--- VISUAL: X-RAY BASE
+-- VISUAL: X-RAY BASE (MEJORADO)
 -- ===========================
-_ESP.xrayConn = nil
+_ESP.xrayConnections = {}
+_ESP.xrayCache = {}
+_ESP.xrayDescendantConns = {}
 
-function startXRay()
-    if _ESP.xrayConn then _ESP.xrayConn:Disconnect(); _ESP.xrayConn = nil end
-    _ESP.xrayConn = RunService.Heartbeat:Connect(function()
-        local Plots = Workspace:FindFirstChild("Plots")
-        if not Plots then return end
-        for _, Plot in ipairs(Plots:GetChildren()) do
-            if Plot:IsA("Model") then
-                -- Transparencia para Decorations
-                if Plot:FindFirstChild("Decorations") then
-                    for _, Part in ipairs(Plot.Decorations:GetDescendants()) do
-                        if Part:IsA("BasePart") then Part.Transparency = 0.8 end
-                    end
-                end
-                -- Transparencia para Skin
-                if Plot:FindFirstChild("Skin") then
-                    for _, Part in ipairs(Plot.Skin:GetDescendants()) do
-                        if Part:IsA("BasePart") then Part.Transparency = 0.8 end
-                    end
-                end
-            end
+local XRAY_TARGET_TRANSPARENCY = 0.7
+local XRAY_PODIUM_TRANSPARENCY = 0.5
+
+local XRAY_MARKERS = {
+    "AnimationController",
+    "RootPart",
+    "FakeRootPart",
+    "VfxInstance",
+}
+
+local function countMarkers(model)
+    local count = 0
+    for _, name in ipairs(XRAY_MARKERS) do
+        if model:FindFirstChild(name) then count += 1 end
+    end
+    return count
+end
+
+local function isBrainrot(model)
+    return model:IsA("Model") and countMarkers(model) >= 2
+end
+
+local function rememberOriginalTransparency(inst)
+    if _ESP.xrayCache[inst] == nil then
+        if inst:IsA("BasePart") or inst:IsA("Decal") or inst:IsA("Texture") then
+            _ESP.xrayCache[inst] = inst.Transparency
+        elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") then
+            _ESP.xrayCache[inst] = inst.Transparency
+        end
+    end
+end
+
+local function hookBrainrotPart(obj)
+    if _ESP.xrayConnections[obj] then return end
+    rememberOriginalTransparency(obj)
+    
+    if obj.Transparency ~= XRAY_TARGET_TRANSPARENCY and obj.Transparency ~= 1 then
+        obj.Transparency = XRAY_TARGET_TRANSPARENCY
+    end
+
+    -- Evitar parpadeos si el juego intenta restaurar la transparencia
+    _ESP.xrayConnections[obj] = obj:GetPropertyChangedSignal("Transparency"):Connect(function()
+        if obj.Transparency ~= XRAY_TARGET_TRANSPARENCY and obj.Transparency ~= 1 then
+            obj.Transparency = XRAY_TARGET_TRANSPARENCY
         end
     end)
 end
 
-local function stopXRay()
-    if _ESP.xrayConn then _ESP.xrayConn:Disconnect(); _ESP.xrayConn = nil end
-    local Plots = Workspace:FindFirstChild("Plots")
-    if not Plots then return end
-    for _, Plot in ipairs(Plots:GetChildren()) do
-        if Plot:IsA("Model") then
-            -- Restaurar Decorations
-            if Plot:FindFirstChild("Decorations") then
-                for _, Part in ipairs(Plot.Decorations:GetDescendants()) do
-                    if Part:IsA("BasePart") then Part.Transparency = 1 end
-                end
+local function processBrainrotModel(model)
+    for _, obj in ipairs(model:GetDescendants()) do
+        if obj:IsA("BasePart") or obj:IsA("Decal") or obj:IsA("Texture") then
+            hookBrainrotPart(obj)
+        end
+    end
+    local conn = model.DescendantAdded:Connect(function(obj)
+        if obj:IsA("BasePart") or obj:IsA("Decal") or obj:IsA("Texture") then
+            hookBrainrotPart(obj)
+        end
+    end)
+    table.insert(_ESP.xrayDescendantConns, conn)
+end
+
+local function trackXRayModel(obj)
+    if obj:IsA("Model") and isBrainrot(obj) then
+        processBrainrotModel(obj)
+    end
+end
+
+local function setPodiumTransparent(root)
+    if not root then return end
+    if root:IsA("BasePart") or root:IsA("Decal") or root:IsA("Texture") then
+        rememberOriginalTransparency(root)
+        root.Transparency = XRAY_PODIUM_TRANSPARENCY
+    elseif root:IsA("ParticleEmitter") or root:IsA("Trail") or root:IsA("Beam") then
+        rememberOriginalTransparency(root)
+        root.Transparency = NumberSequence.new(XRAY_PODIUM_TRANSPARENCY)
+    end
+
+    for _, d in ipairs(root:GetDescendants()) do
+        if d:IsA("BasePart") or d:IsA("Decal") or d:IsA("Texture") then
+            rememberOriginalTransparency(d)
+            d.Transparency = XRAY_PODIUM_TRANSPARENCY
+        elseif d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") then
+            rememberOriginalTransparency(d)
+            d.Transparency = NumberSequence.new(XRAY_PODIUM_TRANSPARENCY)
+        end
+    end
+end
+
+local function processPlotForXRay(plot)
+    -- Lógica original de X-Ray para Skin y Decorations
+    if plot:FindFirstChild("Decorations") then
+        setPodiumTransparent(plot.Decorations)
+    end
+    if plot:FindFirstChild("Skin") then
+        setPodiumTransparent(plot.Skin)
+    end
+
+    -- Nueva lógica para Podiums y Claims
+    local animalPodiums = plot:FindFirstChild("AnimalPodiums")
+    if animalPodiums then
+        for _, podium in ipairs(animalPodiums:GetChildren()) do
+            local claim = podium:FindFirstChild("Claim")
+            if claim and claim:FindFirstChild("Main") then
+                setPodiumTransparent(claim.Main)
             end
-            -- Restaurar Skin
-            if Plot:FindFirstChild("Skin") then
-                for _, Part in ipairs(Plot.Skin:GetDescendants()) do
-                    if Part:IsA("BasePart") then Part.Transparency = 1 end
-                end
+            local base = podium:FindFirstChild("Base")
+            if base and base:FindFirstChild("Decorations") then
+                setPodiumTransparent(base.Decorations)
             end
         end
     end
+end
+
+function startXRay()
+    local Plots = Workspace:FindFirstChild("Plots")
+    if not Plots then return end
+
+    for _, plot in ipairs(Plots:GetChildren()) do
+        processPlotForXRay(plot)
+        for _, obj in ipairs(plot:GetDescendants()) do
+            trackXRayModel(obj)
+        end
+    end
+
+    -- Detectar nuevos brainrots y nuevos objetos que spawneen en el plot
+    local conn = Plots.DescendantAdded:Connect(function(obj)
+        trackXRayModel(obj)
+        
+        -- Si es una parte visual nueva, revisar si pertenece a una zona que debe ser transparente
+        if obj:IsA("BasePart") or obj:IsA("Decal") or obj:IsA("Texture") or obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+            local parent = obj.Parent
+            while parent and parent ~= Workspace do
+                if parent.Name == "Decorations" or parent.Name == "Skin" or parent.Name == "AnimalPodiums" then
+                    setPodiumTransparent(obj)
+                    break
+                end
+                parent = parent.Parent
+            end
+        end
+    end)
+    table.insert(_ESP.xrayDescendantConns, conn)
+end
+
+local function stopXRay()
+    for _, conn in pairs(_ESP.xrayConnections) do
+        conn:Disconnect()
+    end
+    table.clear(_ESP.xrayConnections)
+
+    for _, conn in ipairs(_ESP.xrayDescendantConns) do
+        conn:Disconnect()
+    end
+    table.clear(_ESP.xrayDescendantConns)
+
+    -- Restaurar todas las transparencias originales guardadas en caché
+    for inst, oldValue in pairs(_ESP.xrayCache) do
+        if inst and inst.Parent then
+            if inst:IsA("BasePart") or inst:IsA("Decal") or inst:IsA("Texture") then
+                inst.Transparency = oldValue
+            elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") then
+                inst.Transparency = oldValue
+            end
+        end
+    end
+    table.clear(_ESP.xrayCache)
 end
 
 -- ===========================
@@ -2904,12 +3048,15 @@ end)
 
 -- 2. FUNCIÓN PARA CORTAR/DEVOLVER INTERNET (PC Y MÓVIL)
 local function toggleRaknetDesync(state)
-    if isMobile then
-        pcall(function() raknet.desync(state) end)
+    -- Verificamos directamente si el ejecutor tiene raknet.desync (Móvil)
+    if type(raknet) == "table" and type(raknet.desync) == "function" then
+        -- Ejecutamos SIN pcall() para evitar que el ejecutor de móvil lo anule
+        raknet.desync(state)
     else
+        -- Lógica para PC (send_hook)
         desyncPCHookActive = state
         if state and not desyncPCHookInitialized then
-            if typeof(raknet) == "table" and raknet.add_send_hook then
+            if type(raknet) == "table" and type(raknet.add_send_hook) == "function" then
                 desyncPCHookInitialized = true
                 pcall(function()
                     raknet.add_send_hook(function(packet)
@@ -2921,7 +3068,7 @@ local function toggleRaknetDesync(state)
                     end)
                 end)
             else
-                KYNNotify("Error", "Tu ejecutor de PC no soporta Raknet", "❌", THEME.Red, 3)
+                KYNNotify("Error", "Tu ejecutor no soporta Raknet", "❌", THEME.Red, 3)
                 desyncPCHookActive = false
             end
         end
@@ -3344,9 +3491,12 @@ local function toggleDropButton(state)
 
             local dStroke = stroke(dBtn, Color3.new(1, 1, 1), 3)
             local dGrad = Instance.new("UIGradient", dStroke)
+            -- Se añaden 5 puntos con contraste para que la rotación sea visible
             dGrad.Color = ColorSequence.new{
                 ColorSequenceKeypoint.new(0,    THEME.Purple),
-                ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(200, 50, 255)),
+                ColorSequenceKeypoint.new(0.25, Color3.fromRGB(80, 20, 120)),
+                ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(220, 100, 255)),
+                ColorSequenceKeypoint.new(0.75, Color3.fromRGB(80, 20, 120)),
                 ColorSequenceKeypoint.new(1,    THEME.Purple),
             }
 
@@ -3845,94 +3995,6 @@ _G.KYNAddToggle("Main", {Name = "Float Button", Callback = function(s)
     KYNNotify("Float Button", s and "Botón mostrado ✔" or "Oculto", "☁", THEME.Primary, 1.8)
 end})
 
-_G.KYNAddToggle("Main", {Name = "Drop Button", Callback = function(s)
-    toggleDropButton(s)
-    KYNNotify("Drop Button", s and "Botón mostrado ✔" or "Oculto", "⬇", THEME.Purple, 1.8)
-end})
-
-do
-    local mainTab = tabs["Main"]
-    if mainTab then
-        local kbFrame = Instance.new("Frame", mainTab)
-        kbFrame.Size = UDim2.new(1, 0, 0, 28)
-        kbFrame.BackgroundColor3 = THEME.Frame
-        kbFrame.BackgroundTransparency = 0.5
-        kbFrame.BorderSizePixel = 0
-        corner(kbFrame, 6)
-
-        local kbLabel = Instance.new("TextLabel", kbFrame)
-        kbLabel.Size = UDim2.new(0.7, 0, 1, 0)
-        kbLabel.Position = UDim2.new(0, 8, 0, 0)
-        kbLabel.BackgroundTransparency = 1
-        kbLabel.Text = "   Drop Keybind"
-        kbLabel.TextColor3 = THEME.Dim
-        kbLabel.Font = Enum.Font.GothamSemibold
-        kbLabel.TextSize = 12
-        kbLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-        local kbBtn = Instance.new("TextButton", kbFrame)
-        kbBtn.Size = UDim2.new(0, 52, 0, 20)
-        kbBtn.Position = UDim2.new(1, -60, 0.5, -10)
-        kbBtn.BackgroundColor3 = THEME.DarkBlue
-        kbBtn.Text = dropKeybind
-        kbBtn.TextColor3 = THEME.Purple
-        kbBtn.Font = Enum.Font.GothamBold
-        kbBtn.TextSize = 12
-        kbBtn.AutoButtonColor = false
-        corner(kbBtn, 6)
-        stroke(kbBtn, THEME.Purple, 1.2)
-
-        local listening = false
-        
-        kbBtn.Activated:Connect(function()
-            if listening then return end
-            listening = true
-            kbBtn.Text = "..."
-            kbBtn.TextColor3 = THEME.Neon1
-
-            local conn
-            conn = UIS.InputBegan:Connect(function(input, gp)
-                if gp then return end
-                if input.UserInputType == Enum.UserInputType.Keyboard then
-                    local keyName = input.KeyCode.Name
-                    if keyName and keyName ~= "Unknown" then
-                        dropKeybind = keyName
-                        kynConfig["dropKeybind"] = keyName
-                        saveKYNConfig()
-                        kbBtn.Text = keyName
-                        kbBtn.TextColor3 = THEME.Purple
-                        KYNNotify("Drop Keybind", "Tecla asignada: " .. keyName, "⌨", THEME.Purple, 1.5)
-                        listening = false
-                        conn:Disconnect()
-                    end
-                end
-            end)
-
-            task.delay(5, function()
-                if listening then
-                    listening = false
-                    if conn then conn:Disconnect() end
-                    kbBtn.Text = dropKeybind
-                    kbBtn.TextColor3 = THEME.Purple
-                end
-            end)
-        end)
-
-        -- EVENTO GLOBAL PARA ACTIVAR EL DROP CON TECLA
-        UIS.InputBegan:Connect(function(input, gp)
-            if gp or listening then return end
-            local success, targetKey = pcall(function() return Enum.KeyCode[dropKeybind] end)
-            
-            if success and input.KeyCode == targetKey then
-                if not dropBtnFrame or not dropBtnFrame.Visible then
-                    toggleDropButton(true) -- Muestra el botón si estaba oculto
-                end
-                doDropAction()
-            end
-        end)
-    end
-end
-
 do
     local floatTab = tabs["Main"]
     if floatTab then
@@ -3965,7 +4027,7 @@ do
         corner(kbBtn, 6)
         stroke(kbBtn, THEME.Primary, 1.2)
 
-local listening = false
+        local listening = false
         
         kbBtn.Activated:Connect(function()
             if listening then return end
@@ -3976,7 +4038,6 @@ local listening = false
             local conn
             conn = UIS.InputBegan:Connect(function(input, gp)
                 if gp then return end
-                -- Verificar que sea del teclado (Igual a tu ejemplo)
                 if input.UserInputType == Enum.UserInputType.Keyboard then
                     local keyName = input.KeyCode.Name
                     if keyName and keyName ~= "Unknown" then
@@ -4002,20 +4063,100 @@ local listening = false
             end)
         end)
 
--- EVENTO GLOBAL PARA ACTIVAR EL FLOAT (Igual a tu código de ejemplo)
         UIS.InputBegan:Connect(function(input, gp)
-            -- Si está escribiendo en el chat (gp) o está configurando la tecla (listening), ignorar
             if gp or listening then return end
-            
-            -- Obtener la tecla guardada sin que crashee el script
             local success, targetKey = pcall(function() return Enum.KeyCode[floatKeybind] end)
-            
-            -- Si presionas la tecla correcta, activa el float
             if success and input.KeyCode == targetKey then
                 if not floatBtnFrame or not floatBtnFrame.Visible then
                     toggleFloatButton(true)
                 end
                 doFloatAction()
+            end
+        end)
+    end
+end
+
+_G.KYNAddToggle("Main", {Name = "Drop Button", Callback = function(s)
+    toggleDropButton(s)
+    KYNNotify("Drop Button", s and "Botón mostrado ✔" or "Oculto", "⬇", THEME.Purple, 1.8)
+end})
+
+do
+    local mainTab = tabs["Main"]
+    if mainTab then
+        local kbFrame = Instance.new("Frame", mainTab)
+        kbFrame.Size = UDim2.new(1, 0, 0, 28)
+        kbFrame.BackgroundColor3 = THEME.Frame
+        kbFrame.BackgroundTransparency = 0.5
+        kbFrame.BorderSizePixel = 0
+        corner(kbFrame, 6)
+
+        local kbLabel = Instance.new("TextLabel", kbFrame)
+        kbLabel.Size = UDim2.new(0.7, 0, 1, 0)
+        kbLabel.Position = UDim2.new(0, 8, 0, 0)
+        kbLabel.BackgroundTransparency = 1
+        kbLabel.Text = "   Drop Keybind"
+        kbLabel.TextColor3 = THEME.Dim
+        kbLabel.Font = Enum.Font.GothamSemibold
+        kbLabel.TextSize = 12
+        kbLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+        local kbBtn = Instance.new("TextButton", kbFrame)
+        kbBtn.Size = UDim2.new(0, 52, 0, 20)
+        kbBtn.Position = UDim2.new(1, -60, 0.5, -10)
+        kbBtn.BackgroundColor3 = THEME.DarkBlue
+        kbBtn.Text = dropKeybind
+        kbBtn.TextColor3 = THEME.Primary
+        kbBtn.Font = Enum.Font.GothamBold
+        kbBtn.TextSize = 12
+        kbBtn.AutoButtonColor = false
+        corner(kbBtn, 6)
+        stroke(kbBtn, THEME.Primary, 1.2)
+
+        local listening = false
+        
+        kbBtn.Activated:Connect(function()
+            if listening then return end
+            listening = true
+            kbBtn.Text = "..."
+            kbBtn.TextColor3 = THEME.Neon1
+
+            local conn
+            conn = UIS.InputBegan:Connect(function(input, gp)
+                if gp then return end
+                if input.UserInputType == Enum.UserInputType.Keyboard then
+                    local keyName = input.KeyCode.Name
+                    if keyName and keyName ~= "Unknown" then
+                        dropKeybind = keyName
+                        kynConfig["dropKeybind"] = keyName
+                        saveKYNConfig()
+                        kbBtn.Text = keyName
+                        kbBtn.TextColor3 = THEME.Primary
+                        KYNNotify("Drop Keybind", "Tecla asignada: " .. keyName, "⌨", THEME.Primary, 1.5)
+                        listening = false
+                        conn:Disconnect()
+                    end
+                end
+            end)
+
+            task.delay(5, function()
+                if listening then
+                    listening = false
+                    if conn then conn:Disconnect() end
+                    kbBtn.Text = dropKeybind
+                    kbBtn.TextColor3 = THEME.Primary
+                end
+            end)
+        end)
+
+        UIS.InputBegan:Connect(function(input, gp)
+            if gp or listening then return end
+            local success, targetKey = pcall(function() return Enum.KeyCode[dropKeybind] end)
+            if success and input.KeyCode == targetKey then
+                if not dropBtnFrame or not dropBtnFrame.Visible then
+                    toggleDropButton(true)
+                end
+                doDropAction()
             end
         end)
     end
@@ -4094,7 +4235,6 @@ do
             end)
         end)
 
-        -- EVENTO GLOBAL PARA ACTIVAR EL RESPAWN CON TECLA
         UIS.InputBegan:Connect(function(input, gp)
             if gp or listening then return end
             local success, targetKey = pcall(function() return Enum.KeyCode[respawnKeybind] end)
