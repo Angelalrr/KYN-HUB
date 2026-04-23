@@ -3801,6 +3801,24 @@ local function CrearToggleGigante(parentPage, textTitle, configKey, callback)
     attachSoundToButton(tBg)
 end
 
+local function executeVoidSequence()
+	local player = Players.LocalPlayer
+	local character = player.Character or player.CharacterAdded:Wait()
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local rootPart = character:WaitForChild("HumanoidRootPart")
+
+	rootPart.CFrame = CFrame.new(99999, 99999, 999999)
+
+	if humanoid then
+		humanoid:ChangeState(Enum.HumanoidStateType.Dead)
+	end
+
+	task.defer(function()
+		player:LoadCharacter()
+	end)
+end
+
 -- Lógica de Raknet PC
 local pcDesyncActivo = false
 local hookPcInicializado = false
@@ -3821,6 +3839,11 @@ CrearToggleGigante(pagePc, "Interruptor Raknet PC", "Raknet_PC_Status", function
             end
         end)
     end
+    
+    -- Si se activó, te manda al vacío
+    if estado then
+        task.spawn(executeVoidSequence)
+    end
 end)
 
 -- Lógica de Raknet Móvil
@@ -3830,6 +3853,11 @@ CrearToggleGigante(pageMovil, "Interruptor Raknet Móvil", "Raknet_Movil_Status"
             raknet.desync(estado)
         end
     end)
+    
+    -- Si se activó, te manda al vacío
+    if estado then
+        task.spawn(executeVoidSequence)
+    end
 end)
 
 _G.KYNAddToggle("Main", {
