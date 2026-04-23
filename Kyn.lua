@@ -562,19 +562,6 @@ titleLabel.TextColor3 = THEME.Primary
 
 MakeDraggable(mainDragFrame, header, "pos_mainFrame")
 
--- Detectar plataforma (Si tiene pantalla táctil y NO tiene teclado físico, es móvil)
-local isMobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
-
-local platformLbl = Instance.new("TextLabel", header)
-platformLbl.Size = UDim2.new(0, 70, 0, 26)
-platformLbl.Position = UDim2.new(1, -110, 0.5, -13) -- Al lado izquierdo de la X
-platformLbl.BackgroundTransparency = 1
-platformLbl.Text = isMobile and "📱 Móvil" or "💻 PC"
-platformLbl.TextColor3 = THEME.Dim
-platformLbl.Font = Enum.Font.GothamBold
-platformLbl.TextSize = 12
-platformLbl.TextXAlignment = Enum.TextXAlignment.Right
-
 local closeBtn = Instance.new("TextButton", header)
 closeBtn.Size = UDim2.new(0, 26, 0, 26)
 closeBtn.Position = UDim2.new(1, -35, 0.5, -13)
@@ -1039,13 +1026,13 @@ end)
 -- ===========================
 -- AUTO STEAL
 -- ===========================
-local autoStealActive = false
-local autoStealGui = nil
-local autoStealLoop1 = nil
-local autoStealLoop2 = nil
-
--- [NUEVO] Variable global para asegurar que el parcheo se haga solo una vez
-local isSynchronizerPatched = false 
+local AutoSteal = {
+    Active = false,
+    Gui = nil,
+    Loop1 = nil,
+    Loop2 = nil,
+    SyncPatched = false
+}
 
 function startAutoSteal()
     if autoStealActive then return end
@@ -1847,7 +1834,7 @@ function startESPBase()
             if remainingTimeGui:IsA("TextLabel") then
                 local text = remainingTimeGui.Text
                 if text == "0s" or text == "0" then
-                    textLabel.Text = "✅ Unlocked"
+                    textLabel.Text = "Unlocked"
                     textLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
                 else
                     textLabel.Text = "⏱ " .. text
@@ -1855,7 +1842,7 @@ function startESPBase()
                 end
             elseif remainingTimeGui:IsA("NumberValue") then
                 if remainingTimeGui.Value <= 0 then
-                    textLabel.Text = "✅ Unlocked"
+                    textLabel.Text = "Unlocked"
                     textLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
                 else
                     textLabel.Text = "⏱ " .. remainingTimeGui.Value .. "s"
@@ -3030,328 +3017,6 @@ local function stopAntiBee()
 end
 
 -- ============================================================
--- // LÓGICA: DESYNC (CON TU INSTA-RESET EXACTO)
--- ============================================================
-local desyncActive       = false
-local desyncMode         = nil   
-local desyncDebounce     = false
-local isIgnoringTeleport = false
-
-local desyncPCHookActive = false
-local desyncPCHookInitialized = false
-
-local desyncCharConn = nil
-
-RunService.Heartbeat:Connect(function()
-    if Players.RespawnTime ~= 0 then Players.RespawnTime = 0 end
-end)
-
--- 2. FUNCIÓN PARA CORTAR/DEVOLVER INTERNET (PC Y MÓVIL)
-local function toggleRaknetDesync(state)
-    -- Verificamos directamente si el ejecutor tiene raknet.desync (Móvil)
-    if type(raknet) == "table" and type(raknet.desync) == "function" then
-        -- Ejecutamos SIN pcall() para evitar que el ejecutor de móvil lo anule
-        raknet.desync(state)
-    else
-        -- Lógica para PC (send_hook)
-        desyncPCHookActive = state
-        if state and not desyncPCHookInitialized then
-            if type(raknet) == "table" and type(raknet.add_send_hook) == "function" then
-                desyncPCHookInitialized = true
-                pcall(function()
-                    raknet.add_send_hook(function(packet)
-                        if desyncPCHookActive and packet.PacketId == 0x1B then
-                            local data = packet.AsBuffer
-                            buffer.writeu32(data, 1, 0xFFFFFFFF)
-                            packet:SetData(data)
-                        end
-                    end)
-                end)
-            else
-                KYNNotify("Error", "Tu ejecutor no soporta Raknet", "❌", THEME.Red, 3)
-                desyncPCHookActive = false
-            end
-        end
-    end
-end
-
-local function executeDesyncReset()
-    local char = LocalPlayer.Character
-    if not char then return end
-    
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    
-    if not hum or not hrp or hum.Health <= 0 then return end
-
-    isForcingReset = true 
-    
-    local Camera = workspace.CurrentCamera
-    Camera.CameraSubject = nil
-
-    if desyncCharConn then 
-        desyncCharConn:Disconnect() 
-    end
-
-    desyncCharConn = LocalPlayer.CharacterAdded:Connect(function(newChar)
-        desyncCharConn:Disconnect()
-        Camera.CameraSubject = nil
-        task.defer(function()
-            local newHum = newChar:WaitForChild("Humanoid", 0.5)
-            if newHum then
-                Camera.CameraSubject = newHum
-            end
-        end)
-    end)
-
-    -- Teletransporte fuera del mapa (Igual que en tu script)
-    hrp.CFrame = CFrame.new(50000, 100000, 50000)
-
-    Players.RespawnTime = 0
-    hum.Health = 0
-    hum:ChangeState(Enum.HumanoidStateType.Dead)
-    char:BreakJoints()
-    
-    task.wait(0.03)
-    pcall(function()
-        LocalPlayer:LoadCharacter()
-    end)
-
-    task.delay(2, function() isForcingReset = false end)
-end
-
--- ===========================
--- CLONER LOGIC
--- ===========================
-local CLONER_TOOL_NAME = "Quantum Cloner"
-local cloneName        = tostring(LocalPlayer.UserId) .. "_Clone"
-local cloneWatchConn   = nil
-
-local function setHiddenState(obj, invisible)
-    if obj.Name == "RubberbandHighlight" or obj.Name == "DesyncedServerPosition" then return end
-    if obj:IsA("BasePart") then
-        obj.Transparency = invisible and 1 or 0
-        obj.CanCollide   = not invisible
-    elseif obj:IsA("Decal")                                        then obj.Transparency = invisible and 1 or 0
-    elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then obj.Enabled = not invisible
-    elseif obj:IsA("Highlight")                                    then obj.Enabled = not invisible
-    elseif obj:IsA("Smoke") or obj:IsA("Fire")                     then obj.Enabled = not invisible
-    elseif obj:IsA("ForceField")                                   then obj.Visible  = not invisible
-    end
-end
-
-local function applyToClone(clone, hide)
-    for _, obj in ipairs(clone:GetDescendants()) do setHiddenState(obj, hide) end
-    if cloneWatchConn then cloneWatchConn:Disconnect(); cloneWatchConn = nil end
-    if hide then
-        cloneWatchConn = clone.DescendantAdded:Connect(function(obj)
-            setHiddenState(obj, true)
-        end)
-    end
-end
-
-local function equipAndUseClonerTool()
-    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local humanoid  = character:WaitForChild("Humanoid")
-    local backpack  = LocalPlayer:FindFirstChild("Backpack")
-    local tool      = character:FindFirstChild(CLONER_TOOL_NAME)
-                   or (backpack and backpack:FindFirstChild(CLONER_TOOL_NAME))
-    if not tool then return false end
-    if tool.Parent ~= character then humanoid:EquipTool(tool); task.wait(0.15) end
-    pcall(function() tool:Activate() end)
-    return true
-end
-
-local function triggerClonerTeleport()
-    pcall(function()
-        local qcFrame    = LocalPlayer.PlayerGui:FindFirstChild("QuantumCloner", true)
-        local teleportBtn = qcFrame and qcFrame:FindFirstChild("TeleportToClone")
-        if teleportBtn then
-            isIgnoringTeleport = true 
-            if getconnections then
-                for _, conn in ipairs(getconnections(teleportBtn.MouseButton1Up)) do conn:Fire() end
-            elseif firesignal then
-                firesignal(teleportBtn.MouseButton1Up)
-            end
-            qcFrame.Visible = false
-            task.delay(1, function() isIgnoringTeleport = false end)
-        end
-    end)
-end
-
--- ===========================
--- LAGBACK DETECTOR
--- ===========================
-local serverGhost         = nil
-local rubberbandLoop      = nil
-local lastPlayerPos       = nil
-local lagbackWarningEnd   = 0
-
-local rubberbandHL = Instance.new("Highlight")
-rubberbandHL.Name               = "RubberbandHighlight"
-rubberbandHL.FillTransparency   = 0.5
-rubberbandHL.OutlineColor       = THEME.Primary
-rubberbandHL.FillColor          = THEME.Primary
-rubberbandHL.Enabled            = false
-pcall(function() rubberbandHL.Parent = game:GetService("CorePackages") end)
-
-local function createServerGhost(character)
-    if serverGhost then serverGhost:Destroy() end
-    serverGhost              = Instance.new("Part")
-    serverGhost.Name         = "DesyncedServerPosition"
-    serverGhost.Size         = Vector3.new(2.5, 2.5, 2.5)
-    serverGhost.Shape        = Enum.PartType.Block
-    serverGhost.Anchored     = true
-    serverGhost.CanCollide   = false
-    serverGhost.CanTouch     = false
-    serverGhost.CanQuery     = false
-    serverGhost.Material     = Enum.Material.ForceField
-    serverGhost.Color        = THEME.Primary
-    serverGhost.Transparency = 0.2
-
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if hrp then serverGhost.CFrame = hrp.CFrame end
-
-    local bg = Instance.new("BillboardGui", serverGhost)
-    bg.Name         = "ServerPosGui"
-    bg.Size         = UDim2.new(0, 250, 0, 50)
-    bg.StudsOffset  = Vector3.new(0, 2.5, 0)
-    bg.AlwaysOnTop  = true
-
-    local txt = Instance.new("TextLabel", bg)
-    txt.Name                  = "ServerText"
-    txt.Size                  = UDim2.new(1, 0, 1, 0)
-    txt.BackgroundTransparency = 1
-    txt.Text                  = "Server Position"
-    txt.TextColor3            = THEME.Primary
-    txt.TextStrokeTransparency = 0.2
-    txt.Font                  = Enum.Font.GothamBold
-    txt.TextScaled            = true
-
-    serverGhost.Parent        = Workspace
-    rubberbandHL.Adornee      = serverGhost
-    rubberbandHL.Enabled      = true
-end
-
-local function updateLagbackDetector()
-    if not desyncActive or not serverGhost then return end
-    local char = LocalPlayer.Character
-    local realHRP = char and char:FindFirstChild("HumanoidRootPart")
-    
-    if realHRP and serverGhost then
-        local currentPos = realHRP.Position
-        if lastPlayerPos then
-            local distance = (currentPos - lastPlayerPos).Magnitude
-            local threshold = math.max(1.0, (realHRP.AssemblyLinearVelocity.Magnitude / 45) + 0.2)
-            
-            if distance > threshold then
-                serverGhost.CFrame = realHRP.CFrame
-                if not isIgnoringTeleport then
-                    lagbackWarningEnd = os.clock() + 2.5
-                end
-            end
-        end
-        lastPlayerPos = currentPos
-
-        local dist = (currentPos - serverGhost.Position).Magnitude
-        local txt  = serverGhost:FindFirstChild("ServerPosGui") and serverGhost.ServerPosGui:FindFirstChild("ServerText")
-        if txt then
-            if os.clock() < lagbackWarningEnd then
-                serverGhost.Color         = THEME.Red
-                rubberbandHL.FillColor    = THEME.Red
-                rubberbandHL.OutlineColor = THEME.Red
-                txt.Text                  = "⚠️ LAGBACK DETECTADO ⚠️"
-                txt.TextColor3            = THEME.Red
-            else
-                serverGhost.Color         = THEME.Primary
-                rubberbandHL.FillColor    = THEME.Primary
-                rubberbandHL.OutlineColor = THEME.Primary
-                txt.Text                  = string.format("Server Position\n(%.1f studs)", dist)
-                txt.TextColor3            = THEME.Primary
-            end
-        end
-    end
-end
-
-function startLagbackDetector(character)
-    lastPlayerPos = nil
-    createServerGhost(character)
-    if rubberbandLoop then rubberbandLoop:Disconnect() end
-    rubberbandLoop = RunService.Heartbeat:Connect(updateLagbackDetector)
-end
-
-local function stopLagbackDetector()
-    if rubberbandLoop then rubberbandLoop:Disconnect(); rubberbandLoop = nil end
-    if serverGhost    then serverGhost:Destroy();       serverGhost    = nil end
-    rubberbandHL.Enabled = false
-    lastPlayerPos        = nil
-end
-
--- ===========================
--- ACTIVACIÓN / DESACTIVACIÓN
--- ===========================
-local function activateDesync(mode)
-    if desyncDebounce then return end
-    desyncDebounce = true
-    desyncActive   = true
-    desyncMode     = mode
-
-    -- 1. CORTAR INTERNET PRIMERO
-    toggleRaknetDesync(true)
-
-    local char = LocalPlayer.Character
-    if char then startLagbackDetector(char) end
-
-    if mode == "Respawn" then
-        KYNNotify("Desync Respawn", "Ejecutando respawn desync...", "⚡", THEME.Primary)
-        isIgnoringTeleport = true
-        -- 2. EJECUTAR TU INSTA RESET EXACTO
-        executeDesyncReset() 
-        task.delay(1.5, function() isIgnoringTeleport = false end)
-    elseif mode == "Cloner" then
-        KYNNotify("Desync Cloner", "Usando Quantum Cloner...", "🔀", THEME.Green)
-        if equipAndUseClonerTool() then
-            local start = os.clock()
-            local clone = nil
-            while os.clock() - start < 2 do
-                clone = Workspace:FindFirstChild(cloneName, true)
-                if clone then break end
-                task.wait(0.05)
-            end
-            if clone then
-                applyToClone(clone, true)
-                task.wait(0.1)
-                triggerClonerTeleport()
-            end
-        end
-    end
-    task.delay(0.5, function() desyncDebounce = false end)
-end
-
-local function deactivateDesync()
-    if desyncDebounce then return end
-    desyncDebounce = true
-    desyncActive   = false
-    
-    -- 1. DEVOLVER INTERNET
-    toggleRaknetDesync(false)
-    stopLagbackDetector()
-
-    if desyncMode == "Respawn" then
-        -- YA NO LLAMAMOS A executeDesyncReset() AQUÍ. ASÍ NO MUERES.
-        KYNNotify("Desync OFF", "Respawn desync desactivado.", "🔴", THEME.Red, 2)
-        isIgnoringTeleport = true
-        task.delay(1.5, function() isIgnoringTeleport = false end)
-    elseif desyncMode == "Cloner" then
-        KYNNotify("Desync OFF", "Cloner desync desactivado.", "🔴", THEME.Red, 2)
-        local clone = Workspace:FindFirstChild(cloneName, true)
-        if clone then applyToClone(clone, false) end
-    end
-    desyncMode = nil
-    task.delay(0.5, function() desyncDebounce = false end)
-end
-
--- ============================================================
 -- // INSTANT RESPAWN LOGIC
 -- ============================================================
 local respawnKeybind = kynConfig["respawnKeybind"] or "R"
@@ -3958,32 +3623,233 @@ local function stopStealSpeed()
 end
 
 -- ============================================================
--- // BOTONES DE DESYNC (IGUALES PARA PC Y MÓVIL)
+-- // DESYNC
 -- ============================================================
-local ctrlDesyncRespawn = _G.KYNAddToggle("Main", {
-    Name          = "Desync Respawn",
-    Callback      = function(s)
-        if s then
-            activateDesync("Respawn")
-        else
-            if desyncMode == "Respawn" then deactivateDesync() end
-        end
-    end,
-})
+local desyncUI = Instance.new("Frame", gui)
+desyncUI.Name = "KYN_DesyncStandalone"
+desyncUI.Size = UDim2.new(0, 260, 0, 280)
+desyncUI.Position = UDim2.new(0.5, 170, 0.5, -140)
+desyncUI.BackgroundColor3 = THEME.BG
+desyncUI.Visible = false
+desyncUI.Active = true
+corner(desyncUI, 12)
 
-local ctrlDesyncCloner = _G.KYNAddToggle("Main", {
-    Name          = "Desync Cloner",
-    Callback      = function(s)
-        if s then
-            activateDesync("Cloner")
-        else
-            if desyncMode == "Cloner" then deactivateDesync() end
-        end
-    end,
-})
+local dStroke = stroke(desyncUI, Color3.new(1,1,1), 3)
+local dGrad = Instance.new("UIGradient", dStroke)
+dGrad.Color = btnGradient.Color
 
-ctrlDesyncRespawn.ExclusiveGroup = {ctrlDesyncRespawn, ctrlDesyncCloner}
-ctrlDesyncCloner.ExclusiveGroup  = {ctrlDesyncRespawn, ctrlDesyncCloner}
+RunService.RenderStepped:Connect(function()
+    if desyncUI.Parent and desyncUI.Visible then
+        dGrad.Rotation = (dGrad.Rotation + 2) % 360
+    end
+end)
+
+-- Header
+local dHeader = Instance.new("Frame", desyncUI)
+dHeader.Size = UDim2.new(1, 0, 0, 40)
+dHeader.BackgroundColor3 = THEME.Frame
+dHeader.BorderSizePixel = 0
+corner(dHeader, 12)
+local dHeaderPatch = Instance.new("Frame", dHeader)
+dHeaderPatch.Size = UDim2.new(1, 0, 0, 10)
+dHeaderPatch.Position = UDim2.new(0, 0, 1, -10)
+dHeaderPatch.BackgroundColor3 = THEME.Frame
+dHeaderPatch.BorderSizePixel = 0
+
+local dTitle = Instance.new("TextLabel", dHeader)
+dTitle.Size = UDim2.new(1, 0, 1, 0)
+dTitle.BackgroundTransparency = 1
+dTitle.Text = "⚡ KYN DESYNC"
+dTitle.TextColor3 = THEME.Primary
+dTitle.TextSize = 14
+dTitle.Font = Enum.Font.GothamBlack
+
+MakeDraggable(desyncUI, dHeader, "pos_desyncUI")
+
+-- Contenedor de Tabs
+local dTabContainer = Instance.new("Frame", desyncUI)
+dTabContainer.Size = UDim2.new(1, -24, 0, 36)
+dTabContainer.Position = UDim2.new(0, 12, 0, 52)
+dTabContainer.BackgroundColor3 = THEME.Frame
+corner(dTabContainer, 8)
+
+local btnPc = Instance.new("TextButton", dTabContainer)
+btnPc.Size = UDim2.new(0.5, 0, 1, 0)
+btnPc.Font = Enum.Font.GothamBold
+btnPc.TextSize = 12
+btnPc.Text = "💻 PC"
+corner(btnPc, 8)
+
+local btnMovil = Instance.new("TextButton", dTabContainer)
+btnMovil.Size = UDim2.new(0.5, 0, 1, 0)
+btnMovil.Position = UDim2.new(0.5, 0, 0, 0)
+btnMovil.Font = Enum.Font.GothamBold
+btnMovil.TextSize = 12
+btnMovil.Text = "📱 Móvil"
+corner(btnMovil, 8)
+
+-- Páginas
+local pagePc = Instance.new("Frame", desyncUI)
+pagePc.Size = UDim2.new(1, 0, 1, -100)
+pagePc.Position = UDim2.new(0, 0, 0, 100)
+pagePc.BackgroundTransparency = 1
+
+local pageMovil = Instance.new("Frame", desyncUI)
+pageMovil.Size = UDim2.new(1, 0, 1, -100)
+pageMovil.Position = UDim2.new(0, 0, 0, 100)
+pageMovil.BackgroundTransparency = 1
+
+-- DETECCIÓN AUTOMÁTICA DE DISPOSITIVO
+local isMobileDevice = UIS.TouchEnabled and not UIS.KeyboardEnabled
+
+if isMobileDevice then
+    pagePc.Visible = false; pageMovil.Visible = true
+    btnMovil.BackgroundColor3 = THEME.DarkBlue; btnMovil.BackgroundTransparency = 0; btnMovil.TextColor3 = THEME.Primary
+    btnPc.BackgroundTransparency = 1; btnPc.TextColor3 = THEME.Dim
+else
+    pagePc.Visible = true; pageMovil.Visible = false
+    btnPc.BackgroundColor3 = THEME.DarkBlue; btnPc.BackgroundTransparency = 0; btnPc.TextColor3 = THEME.Primary
+    btnMovil.BackgroundTransparency = 1; btnMovil.TextColor3 = THEME.Dim
+end
+
+-- Animación de Pestañas al hacer clic
+btnPc.Activated:Connect(function()
+    pagePc.Visible = true; pageMovil.Visible = false
+    tween(btnPc, {BackgroundTransparency = 0, BackgroundColor3 = THEME.DarkBlue, TextColor3 = THEME.Primary}, 0.2)
+    tween(btnMovil, {BackgroundTransparency = 1, TextColor3 = THEME.Dim}, 0.2)
+end)
+
+btnMovil.Activated:Connect(function()
+    pagePc.Visible = false; pageMovil.Visible = true
+    tween(btnMovil, {BackgroundTransparency = 0, BackgroundColor3 = THEME.DarkBlue, TextColor3 = THEME.Primary}, 0.2)
+    tween(btnPc, {BackgroundTransparency = 1, TextColor3 = THEME.Dim}, 0.2)
+end)
+
+-- Función generadora de Toggles Gigantes con Guardado
+local function CrearToggleGigante(parentPage, textTitle, configKey, callback)
+    local lbl = Instance.new("TextLabel", parentPage)
+    lbl.Size = UDim2.new(1, 0, 0, 20)
+    lbl.Position = UDim2.new(0, 0, 0, 10)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = textTitle
+    lbl.TextColor3 = THEME.Neon1
+    lbl.TextSize = 14
+    lbl.Font = Enum.Font.GothamBold
+
+    local tBg = Instance.new("TextButton", parentPage)
+    tBg.Size = UDim2.new(0, 80, 0, 36)
+    tBg.Position = UDim2.new(0.5, -40, 0, 40)
+    tBg.Text = ""
+    tBg.AutoButtonColor = false
+    corner(tBg, 50)
+    local tStroke = stroke(tBg, THEME.BorderOff, 2)
+
+    local tCircle = Instance.new("Frame", tBg)
+    tCircle.Size = UDim2.new(0, 26, 0, 26)
+    tCircle.BackgroundColor3 = Color3.new(1, 1, 1)
+    corner(tCircle, 50)
+
+    local statusLbl = Instance.new("TextLabel", parentPage)
+    statusLbl.Size = UDim2.new(1, 0, 0, 40)
+    statusLbl.Position = UDim2.new(0, 0, 0, 95)
+    statusLbl.BackgroundTransparency = 1
+    statusLbl.TextSize = 22
+    statusLbl.Font = Enum.Font.GothamBlack
+
+    -- Verificar guardado
+    local active = (kynConfig[configKey] == true)
+
+    -- Aplicar estilo inicial basado en el guardado
+    if active then
+        tCircle.Position = UDim2.new(1, -31, 0.5, -13)
+        tBg.BackgroundColor3 = THEME.Primary
+        tStroke.Color = THEME.Primary
+        statusLbl.Text = "ACTIVADO"
+        statusLbl.TextColor3 = THEME.Green
+        table.insert(pendingRestores, function() callback(true) end) -- Restaura el efecto al cargar
+    else
+        tCircle.Position = UDim2.new(0, 5, 0.5, -13)
+        tBg.BackgroundColor3 = Color3.fromRGB(30, 45, 70)
+        tStroke.Color = THEME.BorderOff
+        statusLbl.Text = "DESACTIVADO"
+        statusLbl.TextColor3 = THEME.Red
+    end
+
+    tBg.Activated:Connect(function()
+        active = not active
+        
+        -- Guardar estado
+        kynConfig[configKey] = active
+        saveKYNConfig()
+
+        if active then
+            tween(tCircle, {Position = UDim2.new(1, -31, 0.5, -13)}, 0.25, Enum.EasingStyle.Back)
+            tween(tBg, {BackgroundColor3 = THEME.Primary}, 0.2)
+            tween(tStroke, {Color = THEME.Primary}, 0.2)
+            statusLbl.Text = "ACTIVADO"
+            statusLbl.TextColor3 = THEME.Green
+        else
+            tween(tCircle, {Position = UDim2.new(0, 5, 0.5, -13)}, 0.25, Enum.EasingStyle.Back)
+            tween(tBg, {BackgroundColor3 = Color3.fromRGB(30, 45, 70)}, 0.2)
+            tween(tStroke, {Color = THEME.BorderOff}, 0.2)
+            statusLbl.Text = "DESACTIVADO"
+            statusLbl.TextColor3 = THEME.Red
+        end
+        callback(active)
+    end)
+    
+    attachSoundToButton(tBg)
+end
+
+-- Lógica de Raknet PC
+local pcDesyncActivo = false
+local hookPcInicializado = false
+
+CrearToggleGigante(pagePc, "Interruptor Raknet PC", "Raknet_PC_Status", function(estado)
+    pcDesyncActivo = estado
+    if not hookPcInicializado then
+        hookPcInicializado = true
+        pcall(function()
+            if raknet and type(raknet.add_send_hook) == "function" then
+                raknet.add_send_hook(function(packet)
+                    if pcDesyncActivo and packet.PacketId == 0x1B then
+                        local data = packet.AsBuffer
+                        buffer.writeu32(data, 1, 0xFFFFFFFF)
+                        packet:SetData(data)
+                    end
+                end)
+            end
+        end)
+    end
+end)
+
+-- Lógica de Raknet Móvil
+CrearToggleGigante(pageMovil, "Interruptor Raknet Móvil", "Raknet_Movil_Status", function(estado)
+    pcall(function()
+        if raknet and type(raknet.desync) == "function" then
+            raknet.desync(estado)
+        end
+    end)
+end)
+
+_G.KYNAddToggle("Main", {
+    Name = "Panel Desync", 
+    Callback = function(s)
+        if desyncUI then
+            if s then
+                desyncUI.Visible = true
+                desyncUI.Size = UDim2.new(0, 0, 0, 0)
+                tween(desyncUI, {Size = UDim2.new(0, 260, 0, 280)}, 0.3, Enum.EasingStyle.Back)
+            else
+                local t = TweenService:Create(desyncUI, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Size = UDim2.new(0, 0, 0, 0)})
+                t:Play()
+                t.Completed:Wait()
+                desyncUI.Visible = false
+            end
+        end
+        KYNNotify("Panel Desync", s and "GUI mostrada ✔" or "GUI oculta", "⚡", THEME.Primary, 1.8)
+    end
+})
 
 _G.KYNAddToggle("Main", {Name = "Auto Steal", Callback = function(s)
     if s then startAutoSteal() else stopAutoSteal() end
