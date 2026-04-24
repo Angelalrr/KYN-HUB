@@ -366,32 +366,16 @@ local function makeStyledBillboard(adornee, size, offset, textColor, text, gradC
     bb.Adornee = adornee
     bb.Parent = adornee
 
-    local bg = Instance.new("Frame", bb)
-    bg.Size = UDim2.new(1, 0, 1, 0)
-    bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    bg.BackgroundTransparency = 0.45
-    bg.BorderSizePixel = 0
-    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 6)
-
-    local uiStroke = Instance.new("UIStroke", bg)
-    uiStroke.Thickness = 2
-    uiStroke.Color = Color3.new(1, 1, 1)
-    uiStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    local grad = Instance.new("UIGradient", uiStroke)
-    grad.Color = gradColor or espGradientColor
-    grad.Rotation = 0
-    table.insert(espGradients, grad)
-
-    local lbl = Instance.new("TextLabel", bg)
+    local lbl = Instance.new("TextLabel", bb)
     lbl.Name = "Label"
-    lbl.Size = UDim2.new(1, -8, 1, 0)
-    lbl.Position = UDim2.new(0, 4, 0, 0)
+    lbl.Size = UDim2.new(1, 0, 1, 0)
     lbl.BackgroundTransparency = 1
     lbl.TextColor3 = textColor or THEME.Primary
-    lbl.TextStrokeTransparency = 0.5
+    lbl.TextStrokeTransparency = 0 
     lbl.TextStrokeColor3 = Color3.new(0, 0, 0)
-    lbl.Font = Enum.Font.GothamBold
-    lbl.TextSize = 13
+    lbl.Font = Enum.Font.GothamBlack
+    lbl.TextSize = 14
+    lbl.RichText = true -- IMPORTANTE: Permite cambiar colores y tamaños en líneas diferentes
     lbl.Text = text or ""
     lbl.ZIndex = 2
     return bb, lbl
@@ -1726,6 +1710,14 @@ function startESPPlayer()
         if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return end
         local hrp = player.Character.HumanoidRootPart
 
+        -- Calcular Distancia
+        local myChar = LocalPlayer.Character
+        local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        local dist = 0
+        if myHrp then
+            dist = math.floor((hrp.Position - myHrp.Position).Magnitude)
+        end
+
         -- Si ESP Stealers está activo y este jugador está robando, no tocar su billboard
         if _ESP.stealersActive and player:GetAttribute("Stealing") then return end
 
@@ -1746,8 +1738,8 @@ function startESPPlayer()
         if not billboard then
             billboard, textLabel = makeStyledBillboard(
                 hrp,
-                UDim2.new(0, 160, 0, 36),
-                Vector3.new(0, 3.2, 0),
+                UDim2.new(0, 160, 0, 50),
+                Vector3.new(0, 4, 0),
                 Color3.fromRGB(0, 255, 255),
                 player.Name,
                 espGradientColor
@@ -1756,7 +1748,11 @@ function startESPPlayer()
         else
             textLabel = billboard:FindFirstChild("Label", true)
         end
-        if textLabel then textLabel.Text = player.Name end
+        
+        -- Formato sin corchetes ([]): Nombre arriba, distancia abajo en gris
+        if textLabel then 
+            textLabel.Text = player.Name .. "\n<font color='#A0A0A0' size='11'>" .. dist .. "m</font>" 
+        end
     end
 
     _ESP.playerConn = RunService.Heartbeat:Connect(function()
@@ -1782,12 +1778,43 @@ end
 local function stopESPPlayer()
     if _ESP.playerConn then _ESP.playerConn:Disconnect(); _ESP.playerConn = nil end
     if _ESP.playerFolder then _ESP.playerFolder:Destroy(); _ESP.playerFolder = nil end
+    -- Borrado correcto de los carteles de cada jugador al apagar el ESP
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local bb = hrp:FindFirstChild("KYN_PlayerBB")
+                if bb then bb:Destroy() end
+            end
+        end
+    end
 end
 
 -- ===========================
 -- VISUAL: ESP BASE TIME
 -- ===========================
 _ESP.baseConn = nil
+local cachedMainRoots = {} -- Memoria caché para evitar lag masivo al buscar MainRoot cada milisegundo
+
+local function getAdorneeTarget(obj)
+    if obj:IsA("BasePart") or obj:IsA("Attachment") then return obj end
+    if obj:IsA("Model") then return obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true) end
+    return nil
+end
+
+local function getPlotMainRoot(plot)
+    if cachedMainRoots[plot] then return cachedMainRoots[plot] end
+    for _, obj in ipairs(plot:GetDescendants()) do
+        if string.lower(obj.Name) == "mainroot" then
+            local target = getAdorneeTarget(obj)
+            if target then
+                cachedMainRoots[plot] = target
+                return target
+            end
+        end
+    end
+    return plot:FindFirstChildWhichIsA("BasePart", true)
+end
 
 function startESPBase()
     local function getOwnBasePosition()
@@ -1808,46 +1835,50 @@ function startESPBase()
         if not purchases then return end
         local plotBlock = purchases:FindFirstChild("PlotBlock")
         if not plotBlock or not plotBlock:FindFirstChild("Main") then return end
-        local main = plotBlock.Main
-        local baseBillboard = main:FindFirstChildOfClass("BillboardGui")
-        local remainingTimeGui = baseBillboard and baseBillboard:FindFirstChild("RemainingTime")
         local base = plot:FindFirstChild("DeliveryHitbox")
         if base and ownBasePos and (base.Position - ownBasePos).Magnitude < 1 then return end
 
-        local billboard = main:FindFirstChild("KYN_ESP_Billboard")
+        local remainingTimeGui = plotBlock.Main:FindFirstChildOfClass("BillboardGui")
+        if remainingTimeGui then remainingTimeGui = remainingTimeGui:FindFirstChild("RemainingTime") end
+
+        -- Obtenemos el MainRoot exacto con tu lógica
+        local targetPart = getPlotMainRoot(plot)
+        if not targetPart then return end
+
+        local billboard = targetPart:FindFirstChild("KYN_ESP_Billboard")
         local textLabel
         if not billboard then
             billboard, textLabel = makeStyledBillboard(
-                main,
-                UDim2.new(0, 180, 0, 36),
-                Vector3.new(0, 5, 0),
+                targetPart, 
+                UDim2.new(0, 200, 0, 46), -- Cuadro invisible más grande para que el texto encaje
+                Vector3.new(0, 3, 0),     -- Altura especificada por ti
                 Color3.fromRGB(255, 255, 255),
                 "Loading...",
                 espGradientColor
             )
             billboard.Name = "KYN_ESP_Billboard"
+            textLabel.TextSize = 16 -- AUMENTAMOS EL TAMAÑO DEL TEXTO
         else
             textLabel = billboard:FindFirstChild("Label", true)
         end
 
         if textLabel and remainingTimeGui then
+            local timeNum = 0
             if remainingTimeGui:IsA("TextLabel") then
-                local text = remainingTimeGui.Text
-                if text == "0s" or text == "0" then
-                    textLabel.Text = "Unlocked"
-                    textLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
-                else
-                    textLabel.Text = "⏱ " .. text
-                    textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-                end
+                timeNum = tonumber(remainingTimeGui.Text:match("%d+")) or 0
             elseif remainingTimeGui:IsA("NumberValue") then
-                if remainingTimeGui.Value <= 0 then
-                    textLabel.Text = "Unlocked"
-                    textLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
-                else
-                    textLabel.Text = "⏱ " .. remainingTimeGui.Value .. "s"
-                    textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-                end
+                timeNum = tonumber(remainingTimeGui.Value) or 0
+            end
+
+            if timeNum <= 0 then
+                textLabel.Text = "Desbloqueado"
+                textLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
+            elseif timeNum <= 60 then
+                textLabel.Text = timeNum .. "s"
+                textLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
+            else
+                textLabel.Text = timeNum .. "s"
+                textLabel.TextColor3 = Color3.fromRGB(255, 50, 80)
             end
         end
     end
@@ -1866,14 +1897,15 @@ local function stopESPBase()
     if _ESP.baseConn then _ESP.baseConn:Disconnect(); _ESP.baseConn = nil end
     local Plots = Workspace:FindFirstChild("Plots")
     if not Plots then return end
+    
+    -- Se asegura de borrar el Billboard en el MainRoot
     for _, plot in pairs(Plots:GetChildren()) do
         pcall(function()
-            local purchases = plot:FindFirstChild("Purchases")
-            if not purchases then return end
-            local plotBlock = purchases:FindFirstChild("PlotBlock")
-            if not plotBlock or not plotBlock:FindFirstChild("Main") then return end
-            local b = plotBlock.Main:FindFirstChild("KYN_ESP_Billboard")
-            if b then b:Destroy() end
+            local targetPart = getPlotMainRoot(plot)
+            if targetPart then
+                local b = targetPart:FindFirstChild("KYN_ESP_Billboard")
+                if b then b:Destroy() end
+            end
         end)
     end
 end
@@ -2106,7 +2138,7 @@ function startESPMine()
                         UDim2.new(0, 120, 0, 30),
                         Vector3.new(0, 2, 0),
                         THEME.Purple,
-                        "💣 Mine",
+                        "Mine",
                         espMineGradientColor
                     )
                     bb.Name = "KYN_MineBB"
@@ -4288,4 +4320,78 @@ task.spawn(function()
         pcall(fn)
     end
     kynRestoring = false
+end)
+
+-- ============================================================
+-- // LOCAL PLAYER IDENTIFIER (KYN HUB USER)
+-- ============================================================
+local localUserBB = nil
+local speedTextLbl = nil
+
+RunService.Heartbeat:Connect(function()
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    -- Busca la cabeza, si no la encuentra usa el torso
+    local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+    if not head then return end
+
+    -- Crear o actualizar si no existe o si respawneaste (el adornee cambió)
+    if not localUserBB or localUserBB.Adornee ~= head then
+        if localUserBB then pcall(function() localUserBB:Destroy() end) end
+
+        localUserBB = Instance.new("BillboardGui")
+        localUserBB.Name = "KYN_LocalUserBB"
+        localUserBB.Size = UDim2.new(0, 115, 0, 42) -- Tamaño pequeño
+        localUserBB.StudsOffset = Vector3.new(0, 2.5, 0) -- Altura sobre la cabeza
+        localUserBB.AlwaysOnTop = true
+        localUserBB.Adornee = head
+        pcall(function() localUserBB.Parent = CoreGui end)
+        if not localUserBB.Parent then pcall(function() localUserBB.Parent = LocalPlayer:WaitForChild("PlayerGui") end) end
+
+        -- Fondo del cartel
+        local bg = Instance.new("Frame", localUserBB)
+        bg.Size = UDim2.new(1, 0, 1, 0)
+        bg.BackgroundColor3 = THEME.Frame
+        bg.BackgroundTransparency = 0.2
+        bg.BorderSizePixel = 0
+        corner(bg, 8)
+
+        -- Borde animado
+        local strokeObj = stroke(bg, Color3.new(1,1,1), 2)
+        local bbGrad = Instance.new("UIGradient", strokeObj)
+        bbGrad.Color = btnGradient.Color -- Mismos colores de tu Hub
+        table.insert(espGradients, bbGrad) -- Lo mete al loop que gira los colores
+
+        -- Texto Línea 1
+        local titleLbl = Instance.new("TextLabel", bg)
+        titleLbl.Size = UDim2.new(1, 0, 0, 20)
+        titleLbl.Position = UDim2.new(0, 0, 0, 2)
+        titleLbl.BackgroundTransparency = 1
+        titleLbl.Text = "⚡ Kyn Hub User"
+        titleLbl.Font = Enum.Font.GothamBlack
+        titleLbl.TextSize = 12
+        titleLbl.TextColor3 = THEME.Primary
+
+        -- Texto Línea 2 (Velocidad)
+        speedTextLbl = Instance.new("TextLabel", bg)
+        speedTextLbl.Size = UDim2.new(1, 0, 0, 20)
+        speedTextLbl.Position = UDim2.new(0, 0, 0, 20)
+        speedTextLbl.BackgroundTransparency = 1
+        speedTextLbl.Text = "Speed: 0"
+        speedTextLbl.Font = Enum.Font.GothamBold
+        speedTextLbl.TextSize = 11
+        speedTextLbl.TextColor3 = THEME.Green
+    end
+
+    -- Actualizar la velocidad en tiempo real
+    if speedTextLbl then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            -- Mide la magnitud de la velocidad X y Z (horizontal real)
+            local vel = hrp.AssemblyLinearVelocity
+            local speed = math.round(Vector3.new(vel.X, 0, vel.Z).Magnitude)
+            speedTextLbl.Text = "Speed: " .. tostring(speed)
+        end
+    end
 end)
