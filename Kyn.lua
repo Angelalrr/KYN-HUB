@@ -1857,7 +1857,7 @@ function startESPBase()
                 espGradientColor
             )
             billboard.Name = "KYN_ESP_Billboard"
-            textLabel.TextSize = 16 -- AUMENTAMOS EL TAMAÑO DEL TEXTO
+            textLabel.TextSize = 25 -- AUMENTAMOS EL TAMAÑO DEL TEXTO
         else
             textLabel = billboard:FindFirstChild("Label", true)
         end
@@ -2175,7 +2175,7 @@ local function stopESPMine()
 end
 
 -- ===========================
--- VISUAL: X-RAY BASE (MEJORADO)
+-- VISUAL: X-RAY BASE
 -- ===========================
 _ESP.xrayConnections = {}
 _ESP.xrayCache = {}
@@ -2203,42 +2203,53 @@ local function isBrainrot(model)
     return model:IsA("Model") and countMarkers(model) >= 2
 end
 
-local function rememberOriginalTransparency(inst)
+-- Actualizado para guardar estados "Enabled" o "Transparency" dependiendo del objeto
+local function rememberOriginalState(inst)
     if _ESP.xrayCache[inst] == nil then
         if inst:IsA("BasePart") or inst:IsA("Decal") or inst:IsA("Texture") then
-            _ESP.xrayCache[inst] = inst.Transparency
+            _ESP.xrayCache[inst] = {type = "Transparency", val = inst.Transparency}
         elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") then
-            _ESP.xrayCache[inst] = inst.Transparency
+            _ESP.xrayCache[inst] = {type = "Enabled", val = inst.Enabled}
         end
     end
 end
 
 local function hookBrainrotPart(obj)
     if _ESP.xrayConnections[obj] then return end
-    rememberOriginalTransparency(obj)
     
-    if obj.Transparency ~= XRAY_TARGET_TRANSPARENCY and obj.Transparency ~= 1 then
-        obj.Transparency = XRAY_TARGET_TRANSPARENCY
+    if obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
+        obj:Destroy()
+        return
     end
 
-    -- Evitar parpadeos si el juego intenta restaurar la transparencia
-    _ESP.xrayConnections[obj] = obj:GetPropertyChangedSignal("Transparency"):Connect(function()
-        if obj.Transparency ~= XRAY_TARGET_TRANSPARENCY and obj.Transparency ~= 1 then
+    if obj:IsA("Beam") or obj:IsA("ParticleEmitter") or obj:IsA("Trail") then
+        rememberOriginalState(obj)
+        obj.Enabled = false
+        return
+    end
+
+    if obj:IsA("BasePart") or obj:IsA("Decal") or obj:IsA("Texture") then
+        rememberOriginalState(obj)
+        
+        -- Si ya es más invisible que el X-Ray, no lo hacemos más opaco
+        if obj.Transparency < XRAY_TARGET_TRANSPARENCY then
             obj.Transparency = XRAY_TARGET_TRANSPARENCY
         end
-    end)
+
+        _ESP.xrayConnections[obj] = obj:GetPropertyChangedSignal("Transparency"):Connect(function()
+            if obj.Transparency < XRAY_TARGET_TRANSPARENCY then
+                obj.Transparency = XRAY_TARGET_TRANSPARENCY
+            end
+        end)
+    end
 end
 
 local function processBrainrotModel(model)
     for _, obj in ipairs(model:GetDescendants()) do
-        if obj:IsA("BasePart") or obj:IsA("Decal") or obj:IsA("Texture") then
-            hookBrainrotPart(obj)
-        end
+        hookBrainrotPart(obj)
     end
     local conn = model.DescendantAdded:Connect(function(obj)
-        if obj:IsA("BasePart") or obj:IsA("Decal") or obj:IsA("Texture") then
-            hookBrainrotPart(obj)
-        end
+        hookBrainrotPart(obj)
     end)
     table.insert(_ESP.xrayDescendantConns, conn)
 end
@@ -2249,29 +2260,55 @@ local function trackXRayModel(obj)
     end
 end
 
-local function setPodiumTransparent(root)
-    if not root then return end
-    if root:IsA("BasePart") or root:IsA("Decal") or root:IsA("Texture") then
-        rememberOriginalTransparency(root)
-        root.Transparency = XRAY_PODIUM_TRANSPARENCY
-    elseif root:IsA("ParticleEmitter") or root:IsA("Trail") or root:IsA("Beam") then
-        rememberOriginalTransparency(root)
-        root.Transparency = NumberSequence.new(XRAY_PODIUM_TRANSPARENCY)
+local function hookPodiumPart(obj)
+    if _ESP.xrayConnections[obj] then return end
+
+    -- 1. Destruir luces reales
+    if obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
+        obj:Destroy()
+        return
     end
 
-    for _, d in ipairs(root:GetDescendants()) do
-        if d:IsA("BasePart") or d:IsA("Decal") or d:IsA("Texture") then
-            rememberOriginalTransparency(d)
-            d.Transparency = XRAY_PODIUM_TRANSPARENCY
-        elseif d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") then
-            rememberOriginalTransparency(d)
-            d.Transparency = NumberSequence.new(XRAY_PODIUM_TRANSPARENCY)
+    -- 2. Apagar efectos visuales de luz (Rayos como los de tu foto)
+    if obj:IsA("Beam") or obj:IsA("ParticleEmitter") or obj:IsA("Trail") then
+        rememberOriginalState(obj)
+        obj.Enabled = false
+        return
+    end
+
+    if obj:IsA("BasePart") or obj:IsA("Decal") or obj:IsA("Texture") then
+        -- 3. Si es un cono de luz falso hecho con un bloque, lo hacemos 100% invisible
+        local name = obj.Name:lower()
+        if name:find("beam") or name:find("ray") or name:find("light") or name:find("volumetric") or name:find("cone") then
+            rememberOriginalState(obj)
+            obj.Transparency = 1
+            return
         end
+
+        rememberOriginalState(obj)
+        
+        -- Solo aplicamos X-Ray si la pieza es visible y no es un cristal ya transparente
+        if obj.Transparency < XRAY_PODIUM_TRANSPARENCY then
+            obj.Transparency = XRAY_PODIUM_TRANSPARENCY
+        end
+
+        _ESP.xrayConnections[obj] = obj:GetPropertyChangedSignal("Transparency"):Connect(function()
+            if obj.Transparency < XRAY_PODIUM_TRANSPARENCY then
+                obj.Transparency = XRAY_PODIUM_TRANSPARENCY
+            end
+        end)
+    end
+end
+
+local function setPodiumTransparent(root)
+    if not root then return end
+    hookPodiumPart(root)
+    for _, d in ipairs(root:GetDescendants()) do
+        hookPodiumPart(d)
     end
 end
 
 local function processPlotForXRay(plot)
-    -- Lógica original de X-Ray para Skin y Decorations
     if plot:FindFirstChild("Decorations") then
         setPodiumTransparent(plot.Decorations)
     end
@@ -2279,7 +2316,6 @@ local function processPlotForXRay(plot)
         setPodiumTransparent(plot.Skin)
     end
 
-    -- Nueva lógica para Podiums y Claims
     local animalPodiums = plot:FindFirstChild("AnimalPodiums")
     if animalPodiums then
         for _, podium in ipairs(animalPodiums:GetChildren()) do
@@ -2296,6 +2332,11 @@ local function processPlotForXRay(plot)
 end
 
 function startXRay()
+    -- Permitir atravesar paredes con la cámara sin perder físicas
+    pcall(function()
+        LocalPlayer.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Invisicam
+    end)
+
     local Plots = Workspace:FindFirstChild("Plots")
     if not Plots then return end
 
@@ -2306,12 +2347,11 @@ function startXRay()
         end
     end
 
-    -- Detectar nuevos brainrots y nuevos objetos que spawneen en el plot
     local conn = Plots.DescendantAdded:Connect(function(obj)
         trackXRayModel(obj)
         
-        -- Si es una parte visual nueva, revisar si pertenece a una zona que debe ser transparente
-        if obj:IsA("BasePart") or obj:IsA("Decal") or obj:IsA("Texture") or obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+        -- Filtro para detectar todo tipo de piezas visuales que spawneen
+        if obj:IsA("BasePart") or obj:IsA("Decal") or obj:IsA("Texture") or obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
             local parent = obj.Parent
             while parent and parent ~= Workspace do
                 if parent.Name == "Decorations" or parent.Name == "Skin" or parent.Name == "AnimalPodiums" then
@@ -2326,6 +2366,11 @@ function startXRay()
 end
 
 local function stopXRay()
+    -- Restaurar cámara
+    pcall(function()
+        LocalPlayer.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Zoom
+    end)
+
     for _, conn in pairs(_ESP.xrayConnections) do
         conn:Disconnect()
     end
@@ -2336,13 +2381,13 @@ local function stopXRay()
     end
     table.clear(_ESP.xrayDescendantConns)
 
-    -- Restaurar todas las transparencias originales guardadas en caché
-    for inst, oldValue in pairs(_ESP.xrayCache) do
+    -- Restaurar valores originales usando la caché avanzada
+    for inst, data in pairs(_ESP.xrayCache) do
         if inst and inst.Parent then
-            if inst:IsA("BasePart") or inst:IsA("Decal") or inst:IsA("Texture") then
-                inst.Transparency = oldValue
-            elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") then
-                inst.Transparency = oldValue
+            if data.type == "Transparency" and inst:IsA("GuiObject") == false then
+                pcall(function() inst.Transparency = data.val end)
+            elseif data.type == "Enabled" then
+                pcall(function() inst.Enabled = data.val end)
             end
         end
     end
