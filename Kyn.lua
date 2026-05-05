@@ -2,16 +2,16 @@
 -- ⚡ KYN HUB⚡
 --===================================================================
 
-local CoreGui           = game:GetService("CoreGui")
-local TweenService      = game:GetService("TweenService")
-local RunService        = game:GetService("RunService")
-local UIS               = game:GetService("UserInputService")
-local Players           = game:GetService("Players")
-local Workspace         = game:GetService("Workspace")
-local Lighting          = game:GetService("Lighting")
-local CollectionService = game:GetService("CollectionService")
-local HttpService       = game:GetService("HttpService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+CoreGui           = game:GetService("CoreGui")
+TweenService      = game:GetService("TweenService")
+RunService        = game:GetService("RunService")
+UIS               = game:GetService("UserInputService")
+Players           = game:GetService("Players")
+Workspace         = game:GetService("Workspace")
+Lighting          = game:GetService("Lighting")
+CollectionService = game:GetService("CollectionService")
+HttpService       = game:GetService("HttpService")
+ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- ============================================================
 -- // SISTEMA DE SONIDO UI (Global)
@@ -19,7 +19,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local clickSound = Instance.new("Sound")
 clickSound.SoundId = "rbxassetid://421058925" -- Sonido de click moderno y limpio
 clickSound.Volume = 0.6
-pcall(function() clickSound.Parent = game:GetService("SoundService") end)
+pcall(function() clicplotBeam.ColorkSound.Parent = game:GetService("SoundService") end)
 
 local function attachSoundToButton(obj)
     -- Verifica si es un botón (TextButton o ImageButton) y si no tiene ya el sonido asignado
@@ -146,11 +146,33 @@ local THEME = {
     Green     = Color3.fromRGB(0, 255, 150),
     Red       = Color3.fromRGB(255, 50, 80),
     Purple    = Color3.fromRGB(180, 50, 255),
+    Accent    = Color3.fromRGB(180, 50, 255),
+    Text      = Color3.fromRGB(180, 230, 255),
+    Success   = Color3.fromRGB(0, 255, 150),
+    Danger    = Color3.fromRGB(255, 50, 80),
+    Warning   = Color3.fromRGB(255, 200, 50),
 }
 
 -- ===========================
--- FUNCIONES ÚTILES
+-- FUNCIONES ÚTILES Y GLOBALES
 -- ===========================
+local espGradients = {}
+local espGradientColor = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, THEME.Primary),
+    ColorSequenceKeypoint.new(0.5, THEME.Accent),
+    ColorSequenceKeypoint.new(1, THEME.Secondary)
+}
+local espStealerGradientColor = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 130, 0)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 80, 0)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 130, 0))
+}
+local espMineGradientColor = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, THEME.Purple),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(200, 100, 255)),
+    ColorSequenceKeypoint.new(1, THEME.Purple)
+}
+
 local function tween(obj, props, time, style)
     TweenService:Create(obj, TweenInfo.new(time or 0.2, style or Enum.EasingStyle.Quint), props):Play()
 end
@@ -169,254 +191,35 @@ local function stroke(parent, color, thick)
     return s
 end
 
--- ===========================
--- SISTEMA DE NOTIFICACIONES
--- ===========================
-local notifQueue      = {}
-local notifRunning    = false
-local notifContainer  = nil  
+local function MakeDraggable(frame, dragPart, saveKey)
+    dragPart = dragPart or frame
+    local dragging = false
+    local dragInput, dragStart, startPos
 
-local function ensureNotifContainer()
-    if notifContainer and notifContainer.Parent then return end
-    local root = CoreGui:FindFirstChild(guiName)
-    if not root then return end
-    notifContainer = Instance.new("Frame", root)
-    notifContainer.Name       = "KYN_NotifContainer"
-    notifContainer.Size       = UDim2.new(0, 280, 1, 0)
-    notifContainer.Position   = UDim2.new(0.5, -140, 0, 0)
-    notifContainer.BackgroundTransparency = 1
-    notifContainer.ZIndex     = 200
-end
-
-local function processNotifQueue()
-    if notifRunning then return end
-    notifRunning = true
-    task.spawn(function()
-        while #notifQueue > 0 do
-            local data = table.remove(notifQueue, 1)
-            ensureNotifContainer()
-            if not notifContainer then task.wait(0.5) continue end
-
-            local card = Instance.new("Frame", notifContainer)
-            card.Size             = UDim2.new(1, 0, 0, 54)
-            card.Position         = UDim2.new(0, 0, 0, -60)  
-            card.BackgroundColor3 = THEME.BG
-            card.ZIndex           = 201
-            card.ClipsDescendants = false
-
-            local cr = Instance.new("UICorner", card)
-            cr.CornerRadius = UDim.new(0, 10)
-
-            local cStroke = Instance.new("UIStroke", card)
-            cStroke.Thickness = 3
-            cStroke.Color     = Color3.new(1, 1, 1)
-            cStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            local cGrad = Instance.new("UIGradient", cStroke)
-            cGrad.Color = ColorSequence.new{
-                ColorSequenceKeypoint.new(0,    THEME.Secondary),
-                ColorSequenceKeypoint.new(0.25, THEME.DarkBlue),
-                ColorSequenceKeypoint.new(0.5,  THEME.Primary),
-                ColorSequenceKeypoint.new(0.75, THEME.DarkBlue),
-                ColorSequenceKeypoint.new(1,    THEME.Secondary),
-            }
-            cGrad.Rotation = 0
-
--- Línea vertical de color sólido
-            local leftLine = Instance.new("Frame", card)
-            leftLine.Size = UDim2.new(0, 3, 1, -16) 
-            leftLine.Position = UDim2.new(0, 6, 0.5, 0) 
-            leftLine.AnchorPoint = Vector2.new(0, 0.5)
-            leftLine.BackgroundColor3 = data.color or THEME.Primary -- Usa el color de la notificación
-            leftLine.BorderSizePixel = 0
-            leftLine.ZIndex = 203
-            Instance.new("UICorner", leftLine).CornerRadius = UDim.new(0, 4)
-
-            local rotConn
-            rotConn = RunService.RenderStepped:Connect(function()
-                if card and card.Parent then
-                    cGrad.Rotation = (cGrad.Rotation + 3) % 360
-                else
-                    rotConn:Disconnect()
-                end
-            end)
-
-if data.image and data.image ~= "" then
-                local imgHolder = Instance.new("Frame", card)
-                imgHolder.Size             = UDim2.new(0, 36, 0, 36)
-                imgHolder.Position         = UDim2.new(0, 16, 0.5, -18) -- Más separado de la línea
-                imgHolder.BackgroundColor3 = THEME.Frame
-                imgHolder.BorderSizePixel  = 0
-                imgHolder.ZIndex           = 202
-                Instance.new("UICorner", imgHolder).CornerRadius = UDim.new(1, 0)
-
-                local imgStroke = stroke(imgHolder, data.color or THEME.Primary, 1.5)
-
-                local imgIcon = Instance.new("ImageLabel", imgHolder)
-                imgIcon.Size                   = UDim2.new(1, 0, 1, 0)
-                imgIcon.BackgroundTransparency = 1
-                imgIcon.Image                  = data.image
-                imgIcon.ScaleType              = Enum.ScaleType.Fit
-                imgIcon.ZIndex                 = 202
-                Instance.new("UICorner", imgIcon).CornerRadius = UDim.new(1, 0)
-            else
-                local icon = Instance.new("TextLabel", card)
-                icon.Size               = UDim2.new(0, 36, 1, 0)
-                icon.Position           = UDim2.new(0, 16, 0, 0) -- Más separado de la línea
-                icon.BackgroundTransparency = 1
-                icon.Text               = data.icon or "⚡"
-                icon.Font               = Enum.Font.GothamBold
-                icon.TextSize           = 22
-                icon.TextColor3         = data.color or THEME.Primary
-                icon.ZIndex             = 202
-            end
-
-            local titleLbl = Instance.new("TextLabel", card)
-            titleLbl.Size           = UDim2.new(1, -60, 0, 20)
-            titleLbl.Position       = UDim2.new(0, 60, 0, 7) -- Más separado de la imagen
-            titleLbl.BackgroundTransparency = 1
-            titleLbl.Text           = data.title or "KYN HUB"
-            titleLbl.Font           = Enum.Font.GothamBlack
-            titleLbl.TextSize       = 13
-            titleLbl.TextColor3     = data.color or THEME.Primary
-            titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-            titleLbl.ZIndex         = 202
-
-            local bodyLbl = Instance.new("TextLabel", card)
-            bodyLbl.Size            = UDim2.new(1, -60, 0, 18)
-            bodyLbl.Position        = UDim2.new(0, 60, 0, 28) -- Más separado de la imagen
-            bodyLbl.BackgroundTransparency = 1
-            bodyLbl.Text            = data.msg or ""
-            bodyLbl.RichText        = true -- IMPORTANTE: Esto permite que los colores HEX funcionen
-            bodyLbl.Font            = Enum.Font.Gotham
-            bodyLbl.TextSize        = 11
-            bodyLbl.TextColor3      = THEME.Neon1
-            bodyLbl.TextXAlignment  = Enum.TextXAlignment.Left
-            bodyLbl.ZIndex          = 202
-            bodyLbl.TextColor3      = THEME.Neon1
-            bodyLbl.TextXAlignment  = Enum.TextXAlignment.Left
-            bodyLbl.ZIndex          = 202
-
-            TweenService:Create(card, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-                {Position = UDim2.new(0, 0, 0, 14)}):Play()
-
-            task.wait(data.duration or 2.8)
-
-            local t = TweenService:Create(card, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.In),
-                {Position = UDim2.new(0, 0, 0, -65)})
-            t:Play()
-            t.Completed:Wait()
-            rotConn:Disconnect()
-            card:Destroy()
-
-            task.wait(0.15) 
-        end
-        notifRunning = false
-    end)
-end
-
-local function KYNImageNotify(title, msg, imageAsset, color, duration)
-    if kynRestoring then return end  
-    table.insert(notifQueue, {
-        title    = title,
-        msg      = msg,
-        image    = imageAsset, -- Pasamos el asset de la imagen
-        color    = color or THEME.Primary,
-        duration = duration or 3.5,
-    })
-    processNotifQueue()
-end
-
-local function KYNNotify(title, msg, iconStr, color, duration)
-    if kynRestoring then return end  
-    table.insert(notifQueue, {
-        title    = title,
-        msg      = msg,
-        icon     = iconStr, 
-        color    = color or THEME.Primary,
-        duration = duration or 3.5,
-    })
-    processNotifQueue()
-end
-
-local espGradientColor = ColorSequence.new{
-    ColorSequenceKeypoint.new(0,    Color3.fromRGB(0, 80, 255)),
-    ColorSequenceKeypoint.new(0.25, Color3.fromRGB(0, 20, 50)),
-    ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(0, 255, 255)),
-    ColorSequenceKeypoint.new(0.75, Color3.fromRGB(0, 20, 50)),
-    ColorSequenceKeypoint.new(1,    Color3.fromRGB(0, 80, 255)),
-}
-local espStealerGradientColor = ColorSequence.new{
-    ColorSequenceKeypoint.new(0,    Color3.fromRGB(200, 80,  0)),
-    ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(255, 220, 0)),
-    ColorSequenceKeypoint.new(1,    Color3.fromRGB(200, 80,  0)),
-}
-local espMineGradientColor = ColorSequence.new{
-    ColorSequenceKeypoint.new(0,    Color3.fromRGB(100, 0, 255)),
-    ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(200, 50, 255)),
-    ColorSequenceKeypoint.new(1,    Color3.fromRGB(100, 0, 255)),
-}
-
-local espGradients = {}
-
-local function makeStyledBillboard(adornee, size, offset, textColor, text, gradColor)
-    local bb = Instance.new("BillboardGui")
-    bb.Size = size or UDim2.new(0, 160, 0, 36)
-    bb.StudsOffset = offset or Vector3.new(0, 3.5, 0)
-    bb.AlwaysOnTop = true
-    bb.Adornee = adornee
-    bb.Parent = adornee
-
-    local lbl = Instance.new("TextLabel", bb)
-    lbl.Name = "Label"
-    lbl.Size = UDim2.new(1, 0, 1, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.TextColor3 = textColor or THEME.Primary
-    lbl.TextStrokeTransparency = 0 
-    lbl.TextStrokeColor3 = Color3.new(0, 0, 0)
-    lbl.Font = Enum.Font.GothamBlack
-    lbl.TextSize = 14
-    lbl.RichText = true -- IMPORTANTE: Permite cambiar colores y tamaños en líneas diferentes
-    lbl.Text = text or ""
-    lbl.ZIndex = 2
-    return bb, lbl
-end
-
--- saveKey opcional: si se pasa, guarda/restaura la posición del frame en kynConfig
-local function MakeDraggable(dragFrame, handle, saveKey)
-    handle = handle or dragFrame
-    local dragging, dragInput, dragStart, startPos
-
-    -- Restaurar posición guardada
-    if saveKey and kynConfig[saveKey] then
-        local p = kynConfig[saveKey]
-        pcall(function()
-            dragFrame.Position = UDim2.new(p.XS, p.XO, p.YS, p.YO)
-        end)
+    local function update(input)
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
     end
 
-    local function savePos()
-        if saveKey then
-            local p = dragFrame.Position
-            kynConfig[saveKey] = {XS=p.X.Scale, XO=p.X.Offset, YS=p.Y.Scale, YO=p.Y.Offset}
-            saveKYNConfig()
-        end
-    end
-
-    handle.InputBegan:Connect(function(input)
+    dragPart.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
-            startPos = dragFrame.Position
+            startPos = frame.Position
+            
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     dragging = false
-                    savePos()
+                    if saveKey then
+                        kynConfig[saveKey] = {X = frame.Position.X.Offset, Y = frame.Position.Y.Offset}
+                        saveKYNConfig()
+                    end
                 end
             end)
         end
     end)
 
-    handle.InputChanged:Connect(function(input)
+    dragPart.InputChanged:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
             dragInput = input
         end
@@ -424,13 +227,200 @@ local function MakeDraggable(dragFrame, handle, saveKey)
 
     UIS.InputChanged:Connect(function(input)
         if input == dragInput and dragging then
-            local delta = input.Position - dragStart
-            dragFrame.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
+            update(input)
         end
     end)
+
+    if saveKey and kynConfig[saveKey] then
+        pcall(function()
+            frame.Position = UDim2.new(0, kynConfig[saveKey].X, 0, kynConfig[saveKey].Y)
+        end)
+    end
+end
+
+-- ============================================================
+-- CONFIGURACIÓN COMPARTIDA Y GUI BASE
+-- ============================================================
+local IS_MOBILE = UIS.TouchEnabled and not UIS.KeyboardEnabled and not UIS.MouseEnabled
+local CFG = IS_MOBILE and {
+    WIDTH = 340, HEIGHT = 48, TITLE_SIZE = 16, STATS_SIZE = 12,
+    PADDING_LEFT = 32, ACCENT_H = 22, CORNER = 10,
+} or {
+    WIDTH = 440, HEIGHT = 54, TITLE_SIZE = 20, STATS_SIZE = 13,
+    PADDING_LEFT = 42, ACCENT_H = 28, CORNER = 14,
+}
+
+pcall(function()
+    local old = CoreGui:FindFirstChild("KynStatusHUD")
+    if old then old:Destroy() end
+end)
+local hudGui = Instance.new("ScreenGui")
+hudGui.Name = "KynStatusHUD"
+hudGui.ResetOnSpawn = false
+hudGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+hudGui.Parent = CoreGui
+
+-- ============================================
+-- SISTEMA DE NOTIFICACIONES (NUEVO DISEÑO)
+-- ============================================
+local toastContainer = Instance.new("Frame")
+toastContainer.Name = "Toasts"
+toastContainer.Size = UDim2.new(0, 280, 0, 300)
+toastContainer.Position = UDim2.new(0.5, 0, 0, CFG.HEIGHT + 28)
+toastContainer.AnchorPoint = Vector2.new(0.5, 0)
+toastContainer.BackgroundTransparency = 1
+toastContainer.Parent = hudGui
+
+local toastLayout = Instance.new("UIListLayout")
+toastLayout.Padding = UDim.new(0, 6)
+toastLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+toastLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+toastLayout.Parent = toastContainer
+
+local NOTIF_TYPES = {
+    ON      = {color = THEME.Success, prefix = ""},
+    OFF     = {color = THEME.Danger,  prefix = ""},
+    INFO    = {color = THEME.Primary, prefix = ""},
+    WARN    = {color = THEME.Warning, prefix = ""},
+}
+
+_G.KynNotify = function(text, ntype, duration, customColor, imageAsset)
+    duration = duration or 3
+    ntype = ntype or "INFO"
+    local config = NOTIF_TYPES[ntype] or NOTIF_TYPES.INFO
+    local color = customColor or config.color
+    local displayText = config.prefix .. text
+    
+    local toast = Instance.new("Frame")
+    toast.Size = UDim2.new(1, 0, 0, 0)
+    toast.BackgroundColor3 = THEME.Frame
+    toast.BackgroundTransparency = 0.15
+    toast.BorderSizePixel = 0
+    toast.Parent = toastContainer
+    Instance.new("UICorner", toast).CornerRadius = UDim.new(0, 8)
+    
+    local toastStroke = Instance.new("UIStroke", toast)
+    toastStroke.Thickness = 1.2
+    toastStroke.Color = color
+    toastStroke.Transparency = 0.35
+    
+    local colorBar = Instance.new("Frame")
+    colorBar.Size = UDim2.new(0, 3, 0, 0)
+    colorBar.Position = UDim2.new(0, 8, 0.5, 0)
+    colorBar.AnchorPoint = Vector2.new(0, 0.5)
+    colorBar.BackgroundColor3 = color
+    colorBar.BorderSizePixel = 0
+    colorBar.Parent = toast
+    Instance.new("UICorner", colorBar).CornerRadius = UDim.new(0, 2)
+    
+    local textOffsetX = 18
+    
+    -- Si se envía una imagen, creamos el círculo a la izquierda
+    if imageAsset and imageAsset ~= "" then
+        local imgHolder = Instance.new("Frame")
+        imgHolder.Name = "ImgHolder"
+        imgHolder.Size = UDim2.new(0, 24, 0, 24)
+        imgHolder.Position = UDim2.new(0, 16, 0.5, 0)
+        imgHolder.AnchorPoint = Vector2.new(0, 0.5)
+        imgHolder.BackgroundColor3 = Color3.fromRGB(10, 15, 30)
+        imgHolder.Parent = toast
+        Instance.new("UICorner", imgHolder).CornerRadius = UDim.new(1, 0)
+        
+        local imgStroke = Instance.new("UIStroke", imgHolder)
+        imgStroke.Color = color
+        imgStroke.Thickness = 1.2
+        imgStroke.Transparency = 0.2
+        
+        local imgLbl = Instance.new("ImageLabel")
+        imgLbl.Size = UDim2.new(1, 0, 1, 0)
+        imgLbl.BackgroundTransparency = 1
+        imgLbl.ScaleType = Enum.ScaleType.Fit
+        imgLbl.Image = imageAsset
+        imgLbl.Parent = imgHolder
+        Instance.new("UICorner", imgLbl).CornerRadius = UDim.new(1, 0)
+        
+        textOffsetX = 48
+    end
+    
+    local toastText = Instance.new("TextLabel")
+    toastText.Size = UDim2.new(1, -(textOffsetX + 46), 0, 36)
+    toastText.Position = UDim2.new(0, textOffsetX, 0, 0)
+    toastText.BackgroundTransparency = 1
+    toastText.Text = displayText
+    toastText.Font = Enum.Font.GothamBold
+    toastText.TextSize = 11
+    toastText.TextColor3 = THEME.Text
+    toastText.TextXAlignment = Enum.TextXAlignment.Left
+    toastText.TextYAlignment = Enum.TextYAlignment.Center
+    toastText.TextWrapped = true
+    toastText.RichText = true
+    toastText.Parent = toast
+    
+    local timerLabel = Instance.new("TextLabel")
+    timerLabel.Size = UDim2.new(0, 40, 1, 0)
+    timerLabel.Position = UDim2.new(1, -46, 0, 0)
+    timerLabel.BackgroundTransparency = 1
+    timerLabel.Text = string.format("%.1fs", duration)
+    timerLabel.Font = Enum.Font.GothamBold
+    timerLabel.TextSize = 11
+    timerLabel.TextColor3 = THEME.Dim
+    timerLabel.TextXAlignment = Enum.TextXAlignment.Right
+    timerLabel.TextYAlignment = Enum.TextYAlignment.Center
+    timerLabel.Parent = toast
+    
+    local progressContainer = Instance.new("Frame")
+    progressContainer.Size = UDim2.new(1, -16, 0, 2)
+    progressContainer.Position = UDim2.new(0, 8, 1, -5)
+    progressContainer.BackgroundTransparency = 1
+    progressContainer.ClipsDescendants = true
+    progressContainer.BorderSizePixel = 0
+    progressContainer.Parent = toast
+    Instance.new("UICorner", progressContainer).CornerRadius = UDim.new(0, 1)
+    
+    local progressBar = Instance.new("Frame")
+    progressBar.Size = UDim2.new(1, 0, 1, 0)
+    progressBar.BackgroundColor3 = color
+    progressBar.BackgroundTransparency = 0.4
+    progressBar.BorderSizePixel = 0
+    progressBar.Parent = progressContainer
+    Instance.new("UICorner", progressBar).CornerRadius = UDim.new(0, 1)
+    
+    TweenService:Create(toast, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, 36)}):Play()
+    TweenService:Create(colorBar, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 3, 0, 18)}):Play()
+    
+    local startTime = tick()
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if not toast.Parent then connection:Disconnect() return end
+        local elapsed = tick() - startTime
+        local remaining = math.max(0, duration - elapsed)
+        timerLabel.Text = string.format("%.1fs", remaining)
+        progressBar.Size = UDim2.new(math.max(0, remaining / duration), 0, 1, 0)
+        if remaining <= 0 then connection:Disconnect() end
+    end)
+    
+    task.delay(duration, function()
+        if connection then connection:Disconnect() end
+        TweenService:Create(progressBar, TweenInfo.new(0.15), {BackgroundTransparency = 1}):Play()
+        local exit = TweenService:Create(toast, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1})
+        TweenService:Create(colorBar, TweenInfo.new(0.3), {Size = UDim2.new(0, 3, 0, 0)}):Play()
+        exit:Play(); exit.Completed:Wait(); toast:Destroy()
+    end)
+end
+
+-- Adaptadores para compatibilidad con el resto del script
+local function KYNNotify(title, msg, iconStr, color, duration)
+    if kynRestoring then return end
+    local fullText = msg
+    if title and title ~= "" then fullText = title .. " | " .. msg end
+    _G.KynNotify(fullText, "INFO", duration or 3.5, color)
+end
+
+local function KYNImageNotify(title, msg, imageAsset, color, duration)
+    if kynRestoring then return end
+    local fullText = msg
+    if title and title ~= "" then fullText = title .. " | " .. msg end
+    _G.KynNotify(fullText, "INFO", duration or 3.5, color, imageAsset)
 end
 
 -- ===========================
@@ -705,10 +695,10 @@ end
 
 local function createTabButton(text, tabName)
     local btn = Instance.new("TextButton", tabContainer)
-    btn.Size = UDim2.new(0, 85, 0, 28)
+    btn.Size = UDim2.new(0, 68, 0, 28)
     btn.Text = text
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 12
+    btn.TextSize = 11 
     btn.AutoButtonColor = false
     btn.ZIndex = 2
     corner(btn, 6)
@@ -720,8 +710,8 @@ local function createTabButton(text, tabName)
     btn.Activated:Connect(function() setActiveTab(tabName) end)
 end
 
-createTab("Main"); createTab("Visual"); createTab("Misc")
-createTabButton("Main", "Main"); createTabButton("Visual", "Visual"); createTabButton("Misc", "Misc")
+createTab("Main"); createTab("Visual"); createTab("Misc"); createTab("Keybinds")
+createTabButton("Main", "Main"); createTabButton("Visual", "Visual"); createTabButton("Misc", "Misc"); createTabButton("Keybinds", "Keybinds")
 setActiveTab("Main")
 
 _G.KYNAddToggle = function(tabName, data)
@@ -837,171 +827,244 @@ end)
 local isOpen = false
 local isAnimating = false
 
--- ============================================================
--- // HUD DE FPS / PING
--- ===========================================================
-do
-    local fpsCount  = 0
-    local fpsClock  = os.clock()
-    local currentFPS = 0
-
-    local hudFrame = Instance.new("Frame", gui)
-    hudFrame.Name              = "KYN_FPS_HUD"
-    hudFrame.Size              = UDim2.new(0, 310, 0, 38)
-    hudFrame.Position          = UDim2.new(0.5, -155, 0, -50)   -- empieza fuera de pantalla
-    hudFrame.BackgroundColor3  = THEME.BG
-    hudFrame.Active            = true
-    hudFrame.ZIndex            = 50
-    corner(hudFrame, 50)
-
-    local hudStroke = stroke(hudFrame, Color3.new(1,1,1), 2.5)
-    local hudGrad   = Instance.new("UIGradient", hudStroke)
-    hudGrad.Color   = ColorSequence.new{
-        ColorSequenceKeypoint.new(0,    THEME.Secondary),
-        ColorSequenceKeypoint.new(0.25, THEME.DarkBlue),
-        ColorSequenceKeypoint.new(0.5,  THEME.Primary),
-        ColorSequenceKeypoint.new(0.75, THEME.DarkBlue),
-        ColorSequenceKeypoint.new(1,    THEME.Secondary),
-    }
-
-    -- Nombre del script (con degradado animado)
-    local hudTitle = Instance.new("TextLabel", hudFrame)
-    hudTitle.Size               = UDim2.new(0, 90, 1, 0)
-    hudTitle.Position           = UDim2.new(0, 10, 0, 0)
-    hudTitle.BackgroundTransparency = 1
-    hudTitle.Text               = "⚡ KYN HUB"
-    hudTitle.Font               = Enum.Font.GothamBlack
-    hudTitle.TextSize           = 13
-    hudTitle.TextColor3         = THEME.Primary
-    hudTitle.TextXAlignment     = Enum.TextXAlignment.Left
-    hudTitle.ZIndex             = 51
-
-    local hudTitleGrad = Instance.new("UIGradient", hudTitle)
-    hudTitleGrad.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0,   THEME.Primary),
-        ColorSequenceKeypoint.new(0.5, THEME.Secondary),
-        ColorSequenceKeypoint.new(1,   THEME.Primary),
-    }
-    hudTitleGrad.Rotation = 0
-
-    -- FPS Label
-    local hudFPSLbl = Instance.new("TextLabel", hudFrame)
-    hudFPSLbl.Size               = UDim2.new(0, 85, 1, 0)
-    hudFPSLbl.Position           = UDim2.new(0, 106, 0, 0)
-    hudFPSLbl.BackgroundTransparency = 1
-    hudFPSLbl.Text               = "FPS: --"
-    hudFPSLbl.Font               = Enum.Font.GothamBold
-    hudFPSLbl.TextSize           = 13
-    hudFPSLbl.TextColor3         = THEME.Primary
-    hudFPSLbl.TextXAlignment     = Enum.TextXAlignment.Left
-    hudFPSLbl.ZIndex             = 51
-
-    -- Separador vertical entre FPS y Ping
-    local hudSep = Instance.new("Frame", hudFrame)
-    hudSep.Size             = UDim2.new(0, 1, 0.5, 0)
-    hudSep.Position         = UDim2.new(0, 196, 0.25, 0)
-    hudSep.BackgroundColor3 = THEME.BorderOff
-    hudSep.BorderSizePixel  = 0
-
-    -- Ping Label
-    local hudPingLbl = Instance.new("TextLabel", hudFrame)
-    hudPingLbl.Size               = UDim2.new(0, 90, 1, 0)
-    hudPingLbl.Position           = UDim2.new(0, 203, 0, 0)
-    hudPingLbl.BackgroundTransparency = 1
-    hudPingLbl.Text               = "PING: --"
-    hudPingLbl.Font               = Enum.Font.GothamBold
-    hudPingLbl.TextSize           = 13
-    hudPingLbl.TextColor3         = Color3.fromRGB(255, 180, 50)
-    hudPingLbl.TextXAlignment     = Enum.TextXAlignment.Left
-    hudPingLbl.ZIndex             = 51
-
-    -- Draggable
-    MakeDraggable(hudFrame, hudFrame, "pos_fpsHud")
-
-    -- Animación de entrada (desliza desde arriba)
-    task.delay(0.6, function()
-        TweenService:Create(hudFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-            { Position = UDim2.new(0.5, -155, 0, 8) }):Play()
-    end)
-
-    -- Loop de actualización FPS + Ping + animación degradado
-    RunService.RenderStepped:Connect(function()
-        fpsCount += 1
-        hudGrad.Rotation    = (hudGrad.Rotation    + 2) % 360
-        hudTitleGrad.Rotation = (hudTitleGrad.Rotation + 1.5) % 360
-
-        local now = os.clock()
-        if now - fpsClock >= 0.5 then
-            currentFPS = math.round(fpsCount / (now - fpsClock))
-            fpsCount   = 0
-            fpsClock   = now
-
-            -- Color FPS según rendimiento
-            if currentFPS >= 55 then
-                hudFPSLbl.TextColor3 = THEME.Green
-            elseif currentFPS >= 30 then
-                hudFPSLbl.TextColor3 = Color3.fromRGB(255, 200, 50)
-            else
-                hudFPSLbl.TextColor3 = THEME.Red
-            end
-            hudFPSLbl.Text = "FPS: " .. currentFPS
-
-            -- Ping
-            local pingMs = 0
-            pcall(function()
-                pingMs = math.floor(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue())
-            end)
-            if pingMs == 0 then
-                pcall(function()
-                    pingMs = math.round(Players:GetNetworkPing() * 1000)
-                end)
-            end
-
-            if pingMs <= 80 then
-                hudPingLbl.TextColor3 = THEME.Green
-            elseif pingMs <= 150 then
-                hudPingLbl.TextColor3 = Color3.fromRGB(255, 200, 50)
-            else
-                hudPingLbl.TextColor3 = THEME.Red
-            end
-            hudPingLbl.Text = "PING: " .. pingMs .. "ms"
-        end
-    end)
-end
-
-local function toggleMenu()
+toggleBtn.Activated:Connect(function()
     if isAnimating then return end
     isAnimating = true
     isOpen = not isOpen
     if isOpen then
         mainDragFrame.Visible = true
-        local t = TweenService:Create(uiScale, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1})
-        t:Play(); t.Completed:Wait()
+        tween(uiScale, {Scale = 1}, 0.3, Enum.EasingStyle.Back)
     else
         local t = TweenService:Create(uiScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Scale = 0})
-        t:Play(); t.Completed:Wait()
+        t:Play()
+        t.Completed:Wait()
         mainDragFrame.Visible = false
     end
     isAnimating = false
+end)
+
+local function makeStyledBillboard(adornee, size, offset, color, textStr, gradientColor)
+    local bb = Instance.new("BillboardGui")
+    bb.Size = size
+    bb.StudsOffset = offset
+    bb.AlwaysOnTop = true
+    bb.Adornee = adornee
+    bb.Parent = adornee
+    
+    -- Texto directamente en el Billboard (sin cuadro)
+    local lbl = Instance.new("TextLabel", bb)
+    lbl.Name = "Label"
+    lbl.Size = UDim2.new(1, 0, 1, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = textStr
+    lbl.Font = Enum.Font.GothamBlack
+    
+    -- AQUÍ AJUSTAS EL TAMAÑO (11 o 12 quedan muy bien y discretos)
+    lbl.TextSize = 11 
+    lbl.TextScaled = false -- Desactivado para que respete el tamaño que le pusimos arriba
+    
+    lbl.TextColor3 = color
+    lbl.RichText = true
+    lbl.TextYAlignment = Enum.TextYAlignment.Center
+    
+    -- Borde negro en las letras para que se lean bien sin el fondo
+    local txtStroke = Instance.new("UIStroke", lbl)
+    txtStroke.Color = Color3.fromRGB(0, 0, 0)
+    txtStroke.Thickness = 1.2
+    txtStroke.Transparency = 0.2
+    
+    return bb, lbl
 end
 
-local btnClickStartPos = Vector2.new()
-toggleBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        btnClickStartPos = input.Position
-    end
-end)
-toggleBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        local delta = (input.Position - btnClickStartPos).Magnitude
-        if delta < 5 then toggleMenu() end
+-- ============================================================
+-- // HUD DE FPS / PING (NUEVO DISEÑO)
+-- ============================================================
+do
+local hudMain = Instance.new("Frame")
+hudMain.Name = "Main"
+hudMain.Size = UDim2.new(0, CFG.WIDTH, 0, CFG.HEIGHT)
+hudMain.Position = UDim2.new(0.5, 0, 0, -100)
+hudMain.AnchorPoint = Vector2.new(0.5, 0)
+hudMain.BackgroundColor3 = THEME.Frame
+hudMain.BackgroundTransparency = 0.1
+hudMain.BorderSizePixel = 0
+hudMain.Active = true
+hudMain.Parent = hudGui
+
+Instance.new("UICorner", hudMain).CornerRadius = UDim.new(0, CFG.CORNER)
+
+local blur = Instance.new("BlurEffect")
+blur.Size = 10
+blur.Parent = hudMain
+
+local strokeHUD = Instance.new("UIStroke", hudMain)
+strokeHUD.Thickness = 1.2
+strokeHUD.Transparency = 0.3
+strokeHUD.Color = THEME.Primary
+
+local strokeGrad = Instance.new("UIGradient", strokeHUD)
+strokeGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, THEME.Primary),
+    ColorSequenceKeypoint.new(0.5, THEME.Accent),
+    ColorSequenceKeypoint.new(1, THEME.Secondary)
+}
+
+task.spawn(function()
+    local rot = 0
+    while strokeHUD.Parent do
+        rot = (rot + 0.8) % 360
+        strokeGrad.Rotation = rot
+        task.wait(0.025)
     end
 end)
 
-UIS.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.RightShift then toggleMenu() end
+local accentBar = Instance.new("Frame")
+accentBar.Size = UDim2.new(0, 3, 0, CFG.ACCENT_H)
+accentBar.Position = UDim2.new(0, 14, 0.5, 0)
+accentBar.AnchorPoint = Vector2.new(0, 0.5)
+accentBar.BackgroundColor3 = THEME.Primary
+accentBar.BorderSizePixel = 0
+accentBar.Parent = hudMain
+Instance.new("UICorner", accentBar).CornerRadius = UDim.new(0, 2)
+
+local accentGrad = Instance.new("UIGradient", accentBar)
+accentGrad.Color = strokeGrad.Color
+accentGrad.Rotation = 90
+
+local accentGlow = Instance.new("Frame")
+accentGlow.Size = UDim2.new(0, 8, 0, CFG.ACCENT_H + 6)
+accentGlow.Position = UDim2.new(0, 11, 0.5, 0)
+accentGlow.AnchorPoint = Vector2.new(0, 0.5)
+accentGlow.BackgroundColor3 = THEME.Primary
+accentGlow.BackgroundTransparency = 0.9
+accentGlow.BorderSizePixel = 0
+accentGlow.Parent = hudMain
+Instance.new("UICorner", accentGlow).CornerRadius = UDim.new(0, 4)
+
+local hudTitle = Instance.new("TextLabel")
+hudTitle.Size = UDim2.new(0, 100, 1, 0)
+hudTitle.Position = UDim2.new(0, CFG.PADDING_LEFT, 0, 0)
+hudTitle.BackgroundTransparency = 1
+hudTitle.Text = "KYN HUB"
+hudTitle.Font = Enum.Font.GothamBlack
+hudTitle.TextSize = CFG.TITLE_SIZE
+hudTitle.TextColor3 = THEME.Text
+hudTitle.TextXAlignment = Enum.TextXAlignment.Left
+hudTitle.TextYAlignment = Enum.TextYAlignment.Center
+hudTitle.Parent = hudMain
+
+local shinyFrame = Instance.new("Frame")
+shinyFrame.Size = UDim2.new(0, 100, 0, CFG.TITLE_SIZE + 4)
+shinyFrame.Position = UDim2.new(0, CFG.PADDING_LEFT - 4, 0.5, -(CFG.TITLE_SIZE + 4) / 2)
+shinyFrame.BackgroundTransparency = 1
+shinyFrame.ClipsDescendants = true
+shinyFrame.Parent = hudMain
+
+local shinyGrad = Instance.new("UIGradient", shinyFrame)
+shinyGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+    ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 255, 255)),
+    ColorSequenceKeypoint.new(0.5, THEME.Primary),
+    ColorSequenceKeypoint.new(0.6, Color3.fromRGB(255, 255, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+}
+shinyGrad.Transparency = NumberSequence.new{
+    NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.4, 1),
+    NumberSequenceKeypoint.new(0.5, 0.2), NumberSequenceKeypoint.new(0.6, 1), NumberSequenceKeypoint.new(1, 1)
+}
+shinyGrad.Rotation = 75
+
+task.spawn(function()
+    while shinyFrame.Parent do
+        shinyGrad.Offset = Vector2.new(-2, 0)
+        local tw = TweenService:Create(shinyGrad, TweenInfo.new(2, Enum.EasingStyle.Linear), {Offset = Vector2.new(2, 0)})
+        tw:Play(); tw.Completed:Wait()
+    end
 end)
+
+local statsContainer = Instance.new("Frame")
+statsContainer.Size = UDim2.new(0, 210, 1, 0)
+statsContainer.Position = UDim2.new(1, -16, 0, 0)
+statsContainer.AnchorPoint = Vector2.new(1, 0)
+statsContainer.BackgroundTransparency = 1
+statsContainer.Parent = hudMain
+
+local fpsLabel = Instance.new("TextLabel", statsContainer)
+fpsLabel.Size = UDim2.new(0, 30, 1, 0)
+fpsLabel.BackgroundTransparency = 1
+fpsLabel.Text = "FPS"
+fpsLabel.Font = Enum.Font.GothamBold
+fpsLabel.TextSize = CFG.STATS_SIZE
+fpsLabel.TextColor3 = THEME.Dim
+fpsLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local fpsValue = Instance.new("TextLabel", statsContainer)
+fpsValue.Size = UDim2.new(0, 42, 1, 0)
+fpsValue.Position = UDim2.new(0, 34, 0, 0)
+fpsValue.BackgroundTransparency = 1
+fpsValue.Text = "60"
+fpsValue.Font = Enum.Font.GothamBlack
+fpsValue.TextSize = CFG.STATS_SIZE + 1
+fpsValue.TextColor3 = THEME.Success
+fpsValue.TextXAlignment = Enum.TextXAlignment.Left
+
+local sep = Instance.new("Frame", statsContainer)
+sep.Size = UDim2.new(0, 1, 0, 14)
+sep.Position = UDim2.new(0, 86, 0.5, -7)
+sep.BackgroundColor3 = THEME.Dim
+sep.BackgroundTransparency = 0.5
+sep.BorderSizePixel = 0
+
+local pingLabel = Instance.new("TextLabel", statsContainer)
+pingLabel.Size = UDim2.new(0, 35, 1, 0)
+pingLabel.Position = UDim2.new(0, 100, 0, 0)
+pingLabel.BackgroundTransparency = 1
+pingLabel.Text = "PING"
+pingLabel.Font = Enum.Font.GothamBold
+pingLabel.TextSize = CFG.STATS_SIZE
+pingLabel.TextColor3 = THEME.Dim
+pingLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local pingValue = Instance.new("TextLabel", statsContainer)
+pingValue.Size = UDim2.new(0, 60, 1, 0)
+pingValue.Position = UDim2.new(0, 138, 0, 0)
+pingValue.BackgroundTransparency = 1
+pingValue.Text = "0ms"
+pingValue.Font = Enum.Font.GothamBlack
+pingValue.TextSize = CFG.STATS_SIZE + 1
+pingValue.TextColor3 = THEME.Success
+pingValue.TextXAlignment = Enum.TextXAlignment.Left
+
+MakeDraggable(hudMain, hudMain, "pos_fpsHud")
+
+local fpsAccumulator, fpsFrameCount, lastFpsUpdate = 0, 0, tick()
+local currentFps, currentPing, displayFps, displayPing = 60, 0, 60, 0
+
+RunService.RenderStepped:Connect(function(deltaTime)
+    fpsFrameCount += 1
+    fpsAccumulator += deltaTime
+    local now = tick()
+    if now - lastFpsUpdate >= 0.5 then
+        currentFps = math.floor(fpsFrameCount / fpsAccumulator + 0.5)
+        if currentFps > 999 then currentFps = 999 end
+        fpsFrameCount, fpsAccumulator, lastFpsUpdate = 0, 0, now
+        pcall(function() currentPing = math.floor((LocalPlayer:GetNetworkPing() * 1000) + 0.5) end)
+    end
+
+    displayFps = displayFps + (currentFps - displayFps) * 0.15
+    displayPing = displayPing + (currentPing - displayPing) * 0.15
+    local df, dp = math.floor(displayFps + 0.5), math.floor(displayPing + 0.5)
+
+    fpsValue.TextColor3 = df >= 60 and THEME.Success or (df >= 30 and THEME.Warning or THEME.Danger)
+    pingValue.TextColor3 = dp < 100 and THEME.Success or (dp < 200 and THEME.Warning or THEME.Danger)
+    fpsValue.Text = tostring(df)
+    pingValue.Text = tostring(dp) .. "ms"
+end)
+
+TweenService:Create(hudMain, TweenInfo.new(0.8, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    Position = UDim2.new(0.5, 0, 0, 24), BackgroundTransparency = 0.1
+}):Play()
+end
 
 -- ============================================================
 -- // LÓGICA DE LOS SCRIPTS (SIN GUIs EXTERNAS)
@@ -1599,7 +1662,7 @@ local function updateVisuals(target)
                                 local hexColor = mutationColors[newTop1.mutation] or "#FFFFFF"
                                 mutText = " | <font color='" .. hexColor .. "'>" .. newTop1.mutation .. "</font>"
                             end
-                            KYNImageNotify("NUEVO OBJETIVO #1", newTop1.name .. mutText .. " - " .. newTop1.genText, asset, THEME.Primary, 4)
+                            KYNImageNotify("", newTop1.name .. mutText .. " - " .. newTop1.genText, asset, THEME.Primary, 4)
                         end)
                     end
                 end
@@ -2452,12 +2515,25 @@ local function createPlotBeam()
     plotBeam.Attachment1 = plotBeamAtt1
     plotBeam.FaceCamera = true
     plotBeam.LightEmission = 1
-    plotBeam.Color = ColorSequence.new(THEME.Primary)
     plotBeam.Transparency = NumberSequence.new(0)
     plotBeam.Width0 = 0.7
     plotBeam.Width1 = 0.7
     plotBeam.Parent = hrp
 end
+
+local t = 0
+
+RunService.RenderStepped:Connect(function(dt)
+	if not plotBeam then return end
+
+	t += dt * 3
+
+	local r = math.sin(t) * 0.5 + 0.5
+	local g = math.sin(t + 2) * 0.5 + 0.5
+	local b = math.sin(t + 4) * 0.5 + 0.5
+
+	plotBeam.Color = ColorSequence.new(Color3.new(r, g, b))
+end)
 
 local function stopLineToBase()
     ltbEnabled = false
@@ -2809,14 +2885,19 @@ local function stopAntiLag()
 end
 
 -- ===========================
--- MISC: FOV AUMENTADO
+-- MISC: FOV AUMENTADO (OPTIMIZADO)
 -- ===========================
-local targetFOV = 120
+local targetFOV = 120 -- Puedes cambiar este número por el FOV que desees
+
 RunService.RenderStepped:Connect(function()
-    local cam = workspace.CurrentCamera
-    -- Si el Anti Bee & Disco está activo, este bloquea el FOV en 70, así que lo respetamos.
-    if cam and cam.FieldOfView ~= targetFOV and not antiBeeEnabled then
-        cam.FieldOfView = targetFOV
+
+    local cam = Workspace.CurrentCamera
+    if cam then
+        -- Verificación de optimización: Solo aplicamos el cambio si el FOV no es 120
+        -- Esto evita reescribir la propiedad en cada frame, mejorando los FPS.
+        if cam.FieldOfView ~= targetFOV then
+            cam.FieldOfView = targetFOV
+        end
     end
 end)
 
@@ -3183,6 +3264,7 @@ end
 -- // INSTANT RESPAWN LOGIC
 -- ============================================================
 local respawnKeybind = kynConfig["respawnKeybind"] or "R"
+local kickKeybind = kynConfig["kickKeybind"] or "K"
 local respawnCharConn = nil
 
 local function doInstantRespawn()
@@ -3222,6 +3304,10 @@ local function doInstantRespawn()
 end
 
 local respawnBtnFrame = nil
+local kickBtnFrame = nil
+local kickDetectorEnabled = false
+local kickDetectorConns = {}
+local kickDetectorDescendantConn = nil
 
 local function toggleRespawnButton(state)
     if state then
@@ -3261,13 +3347,23 @@ local function toggleRespawnButton(state)
 
             MakeDraggable(respawnBtnFrame, rBtn, "pos_respawnBtn")
 
-            rBtn.Activated:Connect(function()
-                rBtn.Text = "..."
-                doInstantRespawn()
-                task.delay(1, function()
-                    if rBtn then rBtn.Text = "Respawn" end
-                end)
+            local rClickStart = Vector2.new()
+rBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        rClickStart = input.Position
+    end
+end)
+rBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if (input.Position - rClickStart).Magnitude < 5 then
+            rBtn.Text = "..."
+            doInstantRespawn()
+            task.delay(1, function()
+                if rBtn then rBtn.Text = "Respawn" end
             end)
+        end
+    end
+end)
         end
         respawnBtnFrame.Visible = true
     else
@@ -3276,7 +3372,128 @@ local function toggleRespawnButton(state)
 end
 
 -- ============================================================
--- // DROP BRAINROT
+-- // KICK / SHUTDOWN SYSTEM
+-- ============================================================
+local function shutdownGame()
+    pcall(function()
+        game:Shutdown()
+    end)
+end
+
+local function hasStolenKeyword(text)
+    return typeof(text) == "string" and string.find(string.lower(text), "you stole") ~= nil
+end
+
+local function watchKickTextObject(obj)
+    if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+        if hasStolenKeyword(obj.Text) then
+            shutdownGame()
+            return
+        end
+        local conn = obj:GetPropertyChangedSignal("Text"):Connect(function()
+            if kickDetectorEnabled and hasStolenKeyword(obj.Text) then
+                shutdownGame()
+            end
+        end)
+        table.insert(kickDetectorConns, conn)
+    end
+end
+
+local function startKickDetector()
+    for _, c in ipairs(kickDetectorConns) do
+        pcall(function() c:Disconnect() end)
+    end
+    kickDetectorConns = {}
+
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+    for _, obj in ipairs(playerGui:GetDescendants()) do
+        watchKickTextObject(obj)
+    end
+
+    kickDetectorDescendantConn = playerGui.DescendantAdded:Connect(function(obj)
+        if kickDetectorEnabled then
+            watchKickTextObject(obj)
+        end
+    end)
+end
+
+local function stopKickDetector()
+    if kickDetectorDescendantConn then
+        kickDetectorDescendantConn:Disconnect()
+        kickDetectorDescendantConn = nil
+    end
+    for _, c in ipairs(kickDetectorConns) do
+        pcall(function() c:Disconnect() end)
+    end
+    kickDetectorConns = {}
+end
+
+local function doKickAction()
+    shutdownGame()
+end
+
+local function toggleKickButton(state)
+    if state then
+        if not kickBtnFrame then
+            kickBtnFrame = Instance.new("Frame", gui)
+            kickBtnFrame.Size = UDim2.new(0, 55, 0, 55)
+            kickBtnFrame.Position = UDim2.new(1, -80, 0.5, 130) -- Debajo de Respawn
+            kickBtnFrame.BackgroundTransparency = 1
+            kickBtnFrame.Active = true
+
+            local kBtn = Instance.new("TextButton", kickBtnFrame)
+            kBtn.Size = UDim2.new(1, 0, 1, 0)
+            kBtn.BackgroundColor3 = THEME.Frame
+            kBtn.Text = "Kick"
+            kBtn.Font = Enum.Font.GothamBold
+            kBtn.TextColor3 = THEME.Red
+            kBtn.TextSize = 13
+            corner(kBtn, 50)
+
+            local kStroke = stroke(kBtn, Color3.new(1, 1, 1), 3)
+            local kGrad = Instance.new("UIGradient", kStroke)
+            kGrad.Color = ColorSequence.new{
+                ColorSequenceKeypoint.new(0,    THEME.Red),
+                ColorSequenceKeypoint.new(0.25, Color3.fromRGB(130, 20, 40)),
+                ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(255, 100, 120)),
+                ColorSequenceKeypoint.new(0.75, Color3.fromRGB(130, 20, 40)),
+                ColorSequenceKeypoint.new(1,    THEME.Red),
+            }
+
+            task.spawn(function()
+                while kickBtnFrame and kickBtnFrame.Parent do
+                    kGrad.Rotation = (kGrad.Rotation + 2) % 360
+                    RunService.RenderStepped:Wait()
+                end
+            end)
+
+            MakeDraggable(kickBtnFrame, kBtn, "pos_kickBtn")
+
+            local kClickStart = Vector2.new()
+kBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        kClickStart = input.Position
+    end
+end)
+kBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if (input.Position - kClickStart).Magnitude < 5 then
+            kBtn.Text = "..."
+            doKickAction()
+            task.delay(0.6, function()
+                if kBtn then kBtn.Text = "Kick" end
+            end)
+        end
+    end
+end)
+end
+        kickBtnFrame.Visible = true
+    else
+        if kickBtnFrame then kickBtnFrame.Visible = false end
+    end
+end
+
+-- ============================================================-- // DROP BRAINROT
 -- ============================================================
 local dropBtnFrame = nil
 local dropKeybind = kynConfig["dropKeybind"] or "T"
@@ -3337,13 +3554,23 @@ local function toggleDropButton(state)
 
             MakeDraggable(dropBtnFrame, dBtn, "pos_dropBtn")
 
-            dBtn.Activated:Connect(function()
-                dBtn.Text = "..."
-                doDropAction()
-                task.delay(0.6, function()
-                    if dBtn then dBtn.Text = "Drop" end
-                end)
+            local dClickStart = Vector2.new()
+dBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dClickStart = input.Position
+    end
+end)
+dBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if (input.Position - dClickStart).Magnitude < 5 then
+            dBtn.Text = "..."
+            doDropAction()
+            task.delay(0.6, function()
+                if dBtn then dBtn.Text = "Drop" end
             end)
+        end
+    end
+end)
         end
         dropBtnFrame.Visible = true
     else
@@ -3357,127 +3584,98 @@ end
 local floatBtnFrame = nil
 local floatKeybind = kynConfig["floatKeybind"] or "F"
 
--- Empaquetamos en una tabla para no sumar al límite de 200 locals
-local FL = {
-    Activo = false,
-    CaidaActiva = false,
-    Conn = nil,
-    JumpAlto = 120,
-    CaidaLenta = -1,
-    TiempoAnclado = 0.1,
-    TiempoPlat = 0.5,
-    DistPlat = 4,
-    JumpOriginal = 50,
-    UseJumpOriginal = false
-}
+local FloatHeight = 10
+local floatConn = nil
+local isFloating = false
 
-local function crearPlataformaAbajo(hrp)
-    local plat = Instance.new("Part")
-    plat.Name = "KYN_TempPlat"
-    plat.Size = Vector3.new(8, 1, 8)
-    plat.Anchored = true
-    plat.CanCollide = true
-    plat.Material = Enum.Material.SmoothPlastic
-    plat.Color = THEME.Primary -- Usa el color azul/cyan de tu menú
-    plat.Position = hrp.Position - Vector3.new(0, hrp.Size.Y/2 + FL.DistPlat, 0)
-    plat.Parent = Workspace
+local function stopFloatAction()
+    isFloating = false
+    if floatConn then floatConn:Disconnect(); floatConn = nil end
     
-    task.delay(FL.TiempoPlat, function()
-        if plat and plat.Parent then plat:Destroy() end
-    end)
-end
-
-local function activarCaidaLenta()
-    FL.CaidaActiva = true
-    if FL.Conn then FL.Conn:Disconnect(); FL.Conn = nil end
-
-    -- Guardamos en qué momento empezamos a caer
-    local tiempoInicio = os.clock()
-
-    FL.Conn = RunService.Heartbeat:Connect(function()
-        if not FL.CaidaActiva then return end
-        local char = LocalPlayer.Character
-        if not char then return end
-        
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hrp or not hum then return end
-
-        -- Esperamos 0.5 segundos antes de empezar a checar el suelo
-        -- Así evitamos que detecte la plataforma invisible que acabas de crear
-        if (os.clock() - tiempoInicio) > 0.5 then
-            if hum.FloorMaterial ~= Enum.Material.Air then
-                FL.CaidaActiva = false
-                hum.JumpPower = FL.JumpOriginal
-                hum.UseJumpPower = FL.UseJumpOriginal
-                if FL.Conn then FL.Conn:Disconnect(); FL.Conn = nil end
-                return
-            end
-        end
-
-        local vel = hrp.AssemblyLinearVelocity
-        if vel.Y < FL.CaidaLenta then
-            hrp.AssemblyLinearVelocity = Vector3.new(vel.X, FL.CaidaLenta, vel.Z)
-        end
-    end)
-end
-
-local function doFloatAction()
-    if FL.Activo then return end
-    FL.Activo = true
-
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local c = LocalPlayer.Character
+    if c then
+        local hrp = c:FindFirstChild("HumanoidRootPart")
+        if hrp then hrp.AssemblyLinearVelocity = Vector3.zero end
+    end
     
-    if not hrp or not hum then
-        FL.Activo = false
-        return
-    end
-
-local fBtn = floatBtnFrame and floatBtnFrame:FindFirstChildOfClass("TextButton")
-    if fBtn then 
-        fBtn.Text = "Activando..."
-        fBtn.TextColor3 = THEME.Green
-    end
-
-    -- Guardar el salto original solo si no estamos ya cayendo
-    if not FL.CaidaActiva then
-        FL.JumpOriginal = hum.JumpPower
-        FL.UseJumpOriginal = hum.UseJumpPower
-    end
-
-    hum.UseJumpPower = true
-    hum.JumpPower = FL.JumpAlto
-    hum.Jump = true
-    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-
-    task.wait(0.08)
-
-    local velAntes = hrp.AssemblyLinearVelocity
-    hrp.Anchored = true
-
-    crearPlataformaAbajo(hrp)
-
-    task.wait(FL.TiempoAnclado)
-
-    hrp.Anchored = false
-    hrp.AssemblyLinearVelocity = Vector3.new(velAntes.X, 0, velAntes.Z)
-
-    activarCaidaLenta()
-
-    FL.Activo = false
+    -- Restaurar visual del botón
+    local fBtn = floatBtnFrame and floatBtnFrame:FindFirstChildOfClass("TextButton")
     if fBtn then 
         fBtn.Text = "Float"
         fBtn.TextColor3 = THEME.Primary
     end
 end
 
+local function doFloatAction()
+    -- Si ya está flotando y tocas el botón de nuevo, lo cancela
+    if isFloating then 
+        stopFloatAction()
+        return 
+    end
+    
+    local c = LocalPlayer.Character
+    if not c then return end
+    local hrp = c:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    isFloating = true
+    
+    -- Cambiar visual del botón a activado
+    local fBtn = floatBtnFrame and floatBtnFrame:FindFirstChildOfClass("TextButton")
+    if fBtn then 
+        fBtn.Text = "Activado"
+        fBtn.TextColor3 = THEME.Green
+    end
+
+    local floatOriginY = hrp.Position.Y + FloatHeight
+    local floatStartTime = tick()
+    local floatDescending = false
+
+    floatConn = RunService.Heartbeat:Connect(function()
+        local c2 = LocalPlayer.Character; if not c2 then stopFloatAction(); return end
+        
+        if c2:GetAttribute("Stealing") == true or LocalPlayer:GetAttribute("Stealing") == true then
+            stopFloatAction()
+            return
+        end
+        
+        local h = c2:FindFirstChild("HumanoidRootPart"); if not h then stopFloatAction(); return end
+        local hum2 = c2:FindFirstChildOfClass("Humanoid")
+        local moveDir = hum2 and hum2.MoveDirection or Vector3.zero
+        
+        -- Después de 4 segundos, comienza a descender
+        if tick() - floatStartTime >= 4 then floatDescending = true end
+        
+        local currentY = h.Position.Y
+        local vertVel
+        
+        if floatDescending then
+            vertVel = -20
+            -- Si ya llegó al suelo original, se apaga solo
+            if currentY <= floatOriginY - FloatHeight + 0.5 then
+                stopFloatAction()
+                return
+            end
+        else
+            -- Mantenerse a la altura deseada (10)
+            local diff = floatOriginY - currentY
+            if diff > 0.3 then vertVel = math.clamp(diff * 8, 5, 50)
+            elseif diff < -0.3 then vertVel = math.clamp(diff * 8, -50, -5)
+            else vertVel = 0 end
+        end
+        
+        -- Velocidad de movimiento mientras flotas
+        local spd = 29
+        local horizX = moveDir.Magnitude > 0.1 and moveDir.X * spd or 0
+        local horizZ = moveDir.Magnitude > 0.1 and moveDir.Z * spd or 0
+        
+        h.AssemblyLinearVelocity = Vector3.new(horizX, vertVel, horizZ)
+    end)
+end
+
 -- Limpiar si el jugador muere
 LocalPlayer.CharacterRemoving:Connect(function()
-    FL.Activo = false
-    FL.CaidaActiva = false
-    if FL.Conn then FL.Conn:Disconnect(); FL.Conn = nil end
+    stopFloatAction()
 end)
 
 local function toggleFloatButton(state)
@@ -3511,7 +3709,19 @@ local function toggleFloatButton(state)
 
             MakeDraggable(floatBtnFrame, fBtn, "pos_floatBtn")
 
-            fBtn.Activated:Connect(doFloatAction) -- Cambio aquí
+            local fClickStart = Vector2.new()
+fBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        fClickStart = input.Position
+    end
+end)
+fBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if (input.Position - fClickStart).Magnitude < 5 then
+            doFloatAction()
+        end
+    end
+end)
         end
         floatBtnFrame.Visible = true
     else
@@ -3522,31 +3732,67 @@ end
 -- ============================================================
 -- // STEAL SPEED
 -- ============================================================
-local ssEnabled   = false
-local stealSpeed  = 25
-local SS_MIN      = 5
-local SS_MAX      = 100
-local ssGui       = nil
-local ssHeartbeat = nil
+local ssEnabled       = false
+local stealSpeed      = 25
+local SS_MIN          = 5
+local SS_MAX          = 100
+local ssGui           = nil
+local ssHeartbeat     = nil
+local ssBypassRender  = nil
+local ssBypassEnabled = false
+local savedStealSpeed = 25
+
+-- Función segura para verificar si estás robando
+local function checkIsStealing()
+    local char = LocalPlayer.Character
+    if char and char:GetAttribute("Stealing") == true then return true end
+    return LocalPlayer:GetAttribute("Stealing") == true
+end
 
 function startStealSpeed()
     ssEnabled = true
+    
+    -- Lógica de Movimiento
     if ssHeartbeat then ssHeartbeat:Disconnect() end
     ssHeartbeat = RunService.Heartbeat:Connect(function()
         if not ssEnabled then return end
-        if LocalPlayer:GetAttribute("Stealing") ~= true then return end
+        if not checkIsStealing() then return end
+        
         local char = LocalPlayer.Character
         if not char then return end
+        
         local hum = char:FindFirstChildOfClass("Humanoid")
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hum and hrp and hum.Health > 0 then
             local md = hum.MoveDirection
             if md.Magnitude > 0 then
+                local currentSpeed = stealSpeed
+                -- Si el bypass está activo, forza las velocidades específicas
+                if ssBypassEnabled then
+                    currentSpeed = (hum.WalkSpeed < 27) and 53 or 43
+                end
+                
                 hrp.AssemblyLinearVelocity = Vector3.new(
-                    md.X * stealSpeed,
+                    md.X * currentSpeed,
                     hrp.AssemblyLinearVelocity.Y,
-                    md.Z * stealSpeed
+                    md.Z * currentSpeed
                 )
+            end
+        end
+    end)
+
+    -- Lógica de Lag Artificial (Bypass)
+    if ssBypassRender then ssBypassRender:Disconnect() end
+    ssBypassRender = RunService.RenderStepped:Connect(function()
+        if not ssEnabled or not ssBypassEnabled then return end
+        if not checkIsStealing() then return end
+        
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.WalkSpeed < 27 then
+                local start = os.clock()
+                while os.clock() - start < 0.09 do end
             end
         end
     end)
@@ -3554,23 +3800,21 @@ function startStealSpeed()
     -- Crear GUI si no existe
     if ssGui and ssGui.Parent then return end
 
-ssGui = Instance.new("ScreenGui")
+    ssGui = Instance.new("ScreenGui")
     ssGui.Name            = "KYN_StealSpeedGUI"
     ssGui.ResetOnSpawn    = false
     ssGui.IgnoreGuiInset  = true
     ssGui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
     
-    -- SOLUCIÓN PC: Asignar el Parent (ESTO SE HABÍA BORRADO)
     if not pcall(function() ssGui.Parent = CoreGui end) then
         ssGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     end
 
-    -- Detectar botones creados en Steal Speed
     ssGui.DescendantAdded:Connect(attachSoundToButton)
     for _, obj in pairs(ssGui:GetDescendants()) do attachSoundToButton(obj) end
 
     local ssFrame = Instance.new("Frame", ssGui)
-    ssFrame.Size              = UDim2.new(0, 260, 0, 175)
+    ssFrame.Size              = UDim2.new(0, 260, 0, 215) -- Altura expandida para el nuevo toggle
     ssFrame.Position          = UDim2.new(0.5, -130, 0.5, 100)
     ssFrame.BackgroundColor3  = THEME.BG
     ssFrame.BorderSizePixel   = 0
@@ -3628,16 +3872,25 @@ ssGui = Instance.new("ScreenGui")
     ssStatus.Font               = Enum.Font.GothamMedium
     ssStatus.TextSize           = 11
     ssStatus.TextXAlignment     = Enum.TextXAlignment.Left
+    
     pcall(function()
-        LocalPlayer:GetAttributeChangedSignal("Stealing"):Connect(function()
-            if LocalPlayer:GetAttribute("Stealing") == true then
+        local function updateStatus()
+            if checkIsStealing() then
                 ssStatus.Text      = "● Speed Activo"
                 ssStatus.TextColor3 = THEME.Green
             else
                 ssStatus.Text      = "● No estás robando"
                 ssStatus.TextColor3 = THEME.Dim
             end
+        end
+        LocalPlayer:GetAttributeChangedSignal("Stealing"):Connect(updateStatus)
+        LocalPlayer.CharacterAdded:Connect(function(char)
+            char:GetAttributeChangedSignal("Stealing"):Connect(updateStatus)
         end)
+        if LocalPlayer.Character then
+            LocalPlayer.Character:GetAttributeChangedSignal("Stealing"):Connect(updateStatus)
+        end
+        updateStatus()
     end)
 
     -- Label velocidad
@@ -3695,9 +3948,12 @@ ssGui = Instance.new("ScreenGui")
         ssKnob.Position     = UDim2.new(pct, 0, 0.5, 0)
         ssSpeedLbl.Text     = "Velocidad: " .. stealSpeed
         ssInput.Text        = tostring(stealSpeed)
-        -- Guardar en config
-        kynConfig["stealSpeed"] = stealSpeed
-        saveKYNConfig()
+        
+        -- Guardar en config solo si no estamos forzando el slider por el Bypass
+        if not ssBypassEnabled then
+            kynConfig["stealSpeed"] = stealSpeed
+            saveKYNConfig()
+        end
     end
 
     -- Restaurar valor guardado
@@ -3753,10 +4009,47 @@ ssGui = Instance.new("ScreenGui")
     ssDivider.BackgroundTransparency = 0.6
     ssDivider.BorderSizePixel = 0
 
-    -- Toggle ON/OFF interno de la GUI
+    -- ===========================
+    -- Toggle Speed Bypass
+    -- ===========================
+    local bypassBtn = Instance.new("TextButton", ssFrame)
+    bypassBtn.Size              = UDim2.new(1, -16, 0, 32)
+    bypassBtn.Position          = UDim2.new(0, 8, 0, 132)
+    bypassBtn.BackgroundColor3  = ssBypassEnabled and THEME.Primary or Color3.fromRGB(30, 45, 70)
+    bypassBtn.Text              = ssBypassEnabled and "Speed Bypass: ON" or "Speed Bypass: OFF"
+    bypassBtn.TextColor3        = ssBypassEnabled and THEME.BG or THEME.Dim
+    bypassBtn.Font              = Enum.Font.GothamBold
+    bypassBtn.TextSize          = 13
+    bypassBtn.AutoButtonColor   = false
+    corner(bypassBtn, 8)
+    local bypassStroke = stroke(bypassBtn, ssBypassEnabled and THEME.Primary or THEME.BorderOff, 1.5)
+
+    bypassBtn.Activated:Connect(function()
+        ssBypassEnabled = not ssBypassEnabled
+        if ssBypassEnabled then
+            -- Guardamos la velocidad del jugador y seteamos la del Bypass
+            savedStealSpeed = stealSpeed
+            applySpeed(53)
+            
+            tween(bypassBtn, {BackgroundColor3 = THEME.Primary}, 0.2)
+            tween(bypassStroke, {Color = THEME.Primary}, 0.2)
+            bypassBtn.Text      = "Speed Bypass: ON"
+            bypassBtn.TextColor3 = THEME.BG
+        else
+            -- Restauramos el slider a la velocidad anterior
+            applySpeed(savedStealSpeed)
+            
+            tween(bypassBtn, {BackgroundColor3 = Color3.fromRGB(30, 45, 70)}, 0.2)
+            tween(bypassStroke, {Color = THEME.BorderOff}, 0.2)
+            bypassBtn.Text      = "Speed Bypass: OFF"
+            bypassBtn.TextColor3 = THEME.Dim
+        end
+    end)
+
+    -- Toggle ON/OFF interno de la GUI principal
     local ssToggle = Instance.new("TextButton", ssFrame)
     ssToggle.Size              = UDim2.new(1, -16, 0, 32)
-    ssToggle.Position          = UDim2.new(0, 8, 0, 132)
+    ssToggle.Position          = UDim2.new(0, 8, 0, 172)
     ssToggle.BackgroundColor3  = THEME.Green
     ssToggle.Text              = "ACTIVADO"
     ssToggle.TextColor3        = THEME.BG
@@ -3782,13 +4075,16 @@ end
 local function stopStealSpeed()
     ssEnabled = false
     if ssHeartbeat then ssHeartbeat:Disconnect(); ssHeartbeat = nil end
+    if ssBypassRender then ssBypassRender:Disconnect(); ssBypassRender = nil end
     if ssGui       then ssGui:Destroy();          ssGui       = nil end
 end
 
 -- ============================================================
 -- // DESYNC
 -- ============================================================
-local desyncUI = Instance.new("Frame", gui)
+local desyncUI
+do
+desyncUI = Instance.new("Frame", gui)
 desyncUI.Name = "KYN_DesyncStandalone"
 desyncUI.Size = UDim2.new(0, 260, 0, 280)
 desyncUI.Position = UDim2.new(0.5, 170, 0.5, -140)
@@ -4022,6 +4318,7 @@ CrearToggleGigante(pageMovil, "Interruptor Raknet Móvil", "Raknet_Movil_Status"
         task.spawn(executeVoidSequence)
     end
 end)
+end
 
 _G.KYNAddToggle("Main", {
     Name = "Panel Desync", 
@@ -4053,7 +4350,7 @@ _G.KYNAddToggle("Main", {Name = "Float Button", Callback = function(s)
 end})
 
 do
-    local floatTab = tabs["Main"]
+    local floatTab = tabs["Keybinds"]
     if floatTab then
         local kbFrame = Instance.new("Frame", floatTab)
         kbFrame.Size = UDim2.new(1, 0, 0, 28)
@@ -4139,7 +4436,7 @@ _G.KYNAddToggle("Main", {Name = "Drop Button", Callback = function(s)
 end})
 
 do
-    local mainTab = tabs["Main"]
+    local mainTab = tabs["Keybinds"]
     if mainTab then
         local kbFrame = Instance.new("Frame", mainTab)
         kbFrame.Size = UDim2.new(1, 0, 0, 28)
@@ -4219,13 +4516,99 @@ do
     end
 end
 
+_G.KYNAddToggle("Main", {Name = "Kick Button", Callback = function(s)
+    toggleKickButton(s)
+    KYNNotify("Kick Button", s and "Botón mostrado ✔" or "Oculto", "💀", THEME.Red, 1.8)
+end})
+
+do
+    local mainTab = tabs["Keybinds"]
+    if mainTab then
+        local kbFrame = Instance.new("Frame", mainTab)
+        kbFrame.Size = UDim2.new(1, 0, 0, 28)
+        kbFrame.BackgroundColor3 = THEME.Frame
+        kbFrame.BackgroundTransparency = 0.5
+        kbFrame.BorderSizePixel = 0
+        corner(kbFrame, 6)
+
+        local kbLabel = Instance.new("TextLabel", kbFrame)
+        kbLabel.Size = UDim2.new(0.7, 0, 1, 0)
+        kbLabel.Position = UDim2.new(0, 8, 0, 0)
+        kbLabel.BackgroundTransparency = 1
+        kbLabel.Text = "   Kick Keybind"
+        kbLabel.TextColor3 = THEME.Dim
+        kbLabel.Font = Enum.Font.GothamSemibold
+        kbLabel.TextSize = 12
+        kbLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+        local kbBtn = Instance.new("TextButton", kbFrame)
+        kbBtn.Size = UDim2.new(0, 52, 0, 20)
+        kbBtn.Position = UDim2.new(1, -60, 0.5, -10)
+        kbBtn.BackgroundColor3 = THEME.DarkBlue
+        kbBtn.Text = kickKeybind
+        kbBtn.TextColor3 = THEME.Primary
+        kbBtn.Font = Enum.Font.GothamBold
+        kbBtn.TextSize = 12
+        kbBtn.AutoButtonColor = false
+        corner(kbBtn, 6)
+        stroke(kbBtn, THEME.Primary, 1.2)
+
+        local listening = false
+        
+        kbBtn.Activated:Connect(function()
+            if listening then return end
+            listening = true
+            kbBtn.Text = "..."
+            kbBtn.TextColor3 = THEME.Neon1
+
+            local conn
+            conn = UIS.InputBegan:Connect(function(input, gp)
+                if gp then return end
+                if input.UserInputType == Enum.UserInputType.Keyboard then
+                    local keyName = input.KeyCode.Name
+                    if keyName and keyName ~= "Unknown" then
+                        kickKeybind = keyName
+                        kynConfig["kickKeybind"] = keyName
+                        saveKYNConfig()
+                        kbBtn.Text = keyName
+                        kbBtn.TextColor3 = THEME.Primary
+                        KYNNotify("Kick Keybind", "Tecla asignada: " .. keyName, "⌨", THEME.Primary, 1.5)
+                        listening = false
+                        conn:Disconnect()
+                    end
+                end
+            end)
+
+            task.delay(5, function()
+                if listening then
+                    listening = false
+                    if conn then conn:Disconnect() end
+                    kbBtn.Text = kickKeybind
+                    kbBtn.TextColor3 = THEME.Primary
+                end
+            end)
+        end)
+
+        UIS.InputBegan:Connect(function(input, gp)
+            if gp or listening then return end
+            local success, targetKey = pcall(function() return Enum.KeyCode[kickKeybind] end)
+            if success and input.KeyCode == targetKey then
+                if not kickBtnFrame or not kickBtnFrame.Visible then
+                    toggleKickButton(true)
+                end
+                doKickAction()
+            end
+        end)
+    end
+end
+
 _G.KYNAddToggle("Main", {Name = "Respawn Button", Callback = function(s)
     toggleRespawnButton(s)
     KYNNotify("Respawn", s and "Botón mostrado ✔" or "Oculto", "💀", THEME.Red, 1.8)
 end})
 
 do
-    local mainTab = tabs["Main"]
+    local mainTab = tabs["Keybinds"]
     if mainTab then
         local kbFrame = Instance.new("Frame", mainTab)
         kbFrame.Size = UDim2.new(1, 0, 0, 28)
@@ -4301,6 +4684,16 @@ do
         end)
     end
 end
+
+_G.KYNAddToggle("Main", {Name = "Kick after steal", Callback = function(s)
+    kickDetectorEnabled = s
+    if s then 
+        startKickDetector() 
+    else 
+        stopKickDetector() 
+    end
+    KYNNotify("Kick after steal", s and "Detector activado ✔" or "Desactivado", "👁", THEME.Red, 1.8)
+end})
 
 _G.KYNAddToggle("Main", {Name = "Steal Speed", Callback = function(s)
     if s then startStealSpeed() else stopStealSpeed() end
